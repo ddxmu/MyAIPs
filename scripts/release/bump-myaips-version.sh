@@ -55,6 +55,11 @@ if not platforms:
 for entry in platforms.values():
     if isinstance(entry, dict):
         entry['version'] = str(next_version)
+        download_url = entry.get('download_url')
+        if isinstance(download_url, str):
+            entry['download_url'] = (download_url
+                                     .replace(f'/v{current}/', f'/v{next_version}/')
+                                     .replace(f'-{current}.', f'-{next_version}.'))
 manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
 PY
 
