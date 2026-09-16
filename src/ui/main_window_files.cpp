@@ -1,0 +1,3631 @@
+// MainWindow's file open/save/import/export implementation, split out of
+// main_window.cpp: the file-format table and dialog filters, document loading
+// and open/save/export flows, scanner and sprite-sheet import, tile preview,
+// printing, the update notice, and the recent files/folders menus. Pure
+// function moves from main_window.cpp; behavior must stay identical.
+
+#include "ui/main_window.hpp"
+#include "ui/main_window_shared.hpp"
+#include "ui/qt_paths.hpp"
+
+#include "core/blend_math.hpp"
+#include "core/layer_metadata.hpp"
+#include "core/smart_object.hpp"
+#include "core/text_warp.hpp"
+#include "core/warp_mesh.hpp"
+#include "core/layer_render_utils.hpp"
+#include "core/layer_tree.hpp"
+#include "core/palette_presets.hpp"
+#include "core/pattern_presets.hpp"
+#include "core/pixel_tools.hpp"
+#include "formats/palette_io.hpp"
+#include "filters/builtin_filters.hpp"
+#include "formats/aseprite_document_io.hpp"
+#include "formats/bmp_document_io.hpp"
+#include "formats/heif_document_io.hpp"
+#include "formats/jxr_document_io.hpp"
+#include "formats/raw_document_io.hpp"
+#include "formats/rttex_document_io.hpp"
+#include "formats/svg_document_io.hpp"
+#include "plugins/legacy_photoshop_adapter.hpp"
+#include "psd/psd_document_io.hpp"
+#include "psd/psd_filter_effects.hpp"
+#include "psd/psd_smart_objects.hpp"
+#include "ui/action_icons.hpp"
+#include "ui/app_settings.hpp"
+#include "render/compositor.hpp"
+#include "ui/background_workers.hpp"
+#include "ui/blend_mode_ui.hpp"
+#include "ui/brush_dynamics_popup.hpp"
+#include "ui/brush_presets.hpp"
+#include "ui/brush_tip_library.hpp"
+#include "ui/brush_tip_manager_dialog.hpp"
+#include "ui/brush_tip_picker.hpp"
+#include "ui/cli_exit.hpp"
+#include "ui/default_brush_tips.hpp"
+#include "ui/compatibility_report.hpp"
+#include "ui/image_document_io.hpp"
+#include "ui/image_save_options_dialog.hpp"
+#include "ui/raw_develop_dialog.hpp"
+#include "ui/raw_develop_settings.hpp"
+#include "ui/script_engine.hpp"
+#include "ui/filter_workflows.hpp"
+#include "ui/gradient_stops_editor.hpp"
+#include "ui/gradient_library.hpp"
+#include "ui/gradient_manager_dialog.hpp"
+#include "ui/dialog_utils.hpp"
+#ifdef Q_OS_WASM
+#include "ui/dialog_utils_wasm.hpp"
+#endif
+#include "ui/document_float_window.hpp"
+#include "ui/font_picker.hpp"
+#include "ui/hotkey_editor.hpp"
+#include "ui/edit_conversions.hpp"
+#include "ui/color_panel.hpp"
+#include "ui/layer_style_dialog.hpp"
+#include "ui/layer_list_widget.hpp"
+#include "ui/localization.hpp"
+#include "ui/measurement_units.hpp"
+#include "ui/palette_convert_dialog.hpp"
+#include "ui/palette_panel.hpp"
+#include "ui/pattern_library.hpp"
+#include "ui/pdf_import.hpp"
+#include "ui/photo_pattern_presets.hpp"
+#include "ui/style_library.hpp"
+#include "ui/print_dialog.hpp"
+#include "ui/smart_object_render.hpp"
+#include "ui/scanner_import.hpp"
+#include "core/photo_divide.hpp"
+#include "ui/divide_photos_dialog.hpp"
+#include "ui/image_sequence_dialog.hpp"
+#include "formats/gif_document_io.hpp"
+#include "ui/sprite_sheet_dialog.hpp"
+#include "ui/animation_preview_window.hpp"
+#include "ui/tile_preview_window.hpp"
+#include "ui/user_fonts.hpp"
+#include "ui/warp_text_dialog.hpp"
+#include "ui/qt_geometry.hpp"
+#include "ui/start_panel.hpp"
+#include "ui/splash_dialog.hpp"
+#include "ui/update_checker.hpp"
+#include "ui/zoom_status_bar.hpp"
+#include "support/string_utils.hpp"
+
+#include <QAbstractItemView>
+#include <QAbstractItemModel>
+#include <QAbstractButton>
+#include <QAbstractSpinBox>
+#include <QAbstractTextDocumentLayout>
+#include <QAction>
+#include <QActionGroup>
+#include <QApplication>
+#include <QBrush>
+#include <QBuffer>
+#include <QButtonGroup>
+#include <QByteArray>
+#include <QDateTime>
+#include <QCheckBox>
+#include <QClipboard>
+#include <QCloseEvent>
+#include <QColorDialog>
+#include <QComboBox>
+#include <QContextMenuEvent>
+#include <QCoreApplication>
+#include <QCursor>
+#include <QColorSpace>
+#include <QDesktopServices>
+#include <QDir>
+#include <QDockWidget>
+#include <QDrag>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDragLeaveEvent>
+#include <QDropEvent>
+#include <QDoubleSpinBox>
+#include <QElapsedTimer>
+#include <QEvent>
+#include <QEventLoop>
+#include <QFileDialog>
+#include <QFile>
+#include <QFileInfo>
+#include <QFont>
+#include <QFontComboBox>
+#include <QFontDatabase>
+#include <QFocusEvent>
+#include <QFontMetrics>
+#include <QFormLayout>
+#include <QFrame>
+#include <QGridLayout>
+#include <QGroupBox>
+#include <QHeaderView>
+#include <QHBoxLayout>
+#include <QLayout>
+#include <QResizeEvent>
+#include <QIcon>
+#include <QImageReader>
+#include <QInputDialog>
+#include <QItemSelection>
+#include <QItemSelectionModel>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QJsonValue>
+#include <QLabel>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QListWidget>
+#include <QLinearGradient>
+#include <QLineEdit>
+#include <QLockFile>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMimeData>
+#include <QMessageBox>
+#include <QMetaObject>
+#include <QMouseEvent>
+#include <QPaintEvent>
+#include <QPushButton>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPixmap>
+#include <QPlainTextEdit>
+#include <QPolygon>
+#include <QPointer>
+#include <QProcess>
+#include <QProgressDialog>
+#include <QRegion>
+#include <QScreen>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QShortcut>
+#include <QScopeGuard>
+#include <QSettings>
+#include <QShowEvent>
+#include <QStandardPaths>
+#include <QStandardItem>
+#include <QStyledItemDelegate>
+#include <QMutex>
+#include <QRawFont>
+#include <QTextCharFormat>
+#include <QTextBlock>
+#include <QTextBlockFormat>
+#include <QTextCursor>
+#include <QTextEdit>
+#include <QTextDocument>
+#include <QTextFragment>
+#include <QTextLayout>
+#include <QTextOption>
+#include <QSignalBlocker>
+#include <QSize>
+#include <QSizePolicy>
+#include <QSlider>
+#include <QSpinBox>
+#include <QStatusBar>
+#include <QStringList>
+#include <QStackedWidget>
+#include <QStyle>
+#include <QStyleOption>
+#include <QTabBar>
+#include <QTabWidget>
+#include <QTableWidget>
+#include <QTableWidgetItem>
+#include <QTimer>
+#include <QToolBar>
+#include <QToolButton>
+#include <QToolTip>
+#include <QTransform>
+#include <QUrl>
+#include <QVariant>
+#include <QVBoxLayout>
+#include <QWidgetAction>
+#include <QWindow>
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cctype>
+#include <cstddef>
+#include <cstdint>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
+#include <functional>
+#include <future>
+#include <iostream>
+#include <iterator>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <windowsx.h>
+#include <dwmapi.h>
+#include <tchar.h>
+#include <tpcshrd.h>
+#endif
+
+#ifndef PATCHY_VERSION
+#define PATCHY_VERSION "0.0.0"
+#endif
+
+// Icon resources live in the static patchy_ui library; force registration before first use.
+int qInitResources_icons();
+
+namespace patchy::ui {
+
+namespace {
+
+constexpr int kOpenProgressTitleReservedWidth = 140;
+constexpr int kOpenProgressTitleMinimumFileNameWidth = 180;
+
+constexpr int kMaxRecentFiles = 200;
+constexpr int kMaxRecentFolders = 200;
+constexpr int kRecentFilesMenuPageSize = 50;
+
+QString elided_open_progress_title_file_name(const QWidget& widget, const QString& file_name) {
+  const int available_width =
+      std::max(kOpenProgressTitleMinimumFileNameWidth, widget.sizeHint().width() - kOpenProgressTitleReservedWidth);
+  return widget.fontMetrics().elidedText(file_name, Qt::ElideMiddle, available_width);
+}
+
+void trim_recent_files(QStringList& recent_files) {
+  while (recent_files.size() > kMaxRecentFiles) {
+    recent_files.removeLast();
+  }
+}
+
+// QSettings merges different keys, but a recent list is one value. Serialize the
+// complete read/modify/write so simultaneous GUI, headless and MCP saves cannot
+// replace each other's entries. Use a separate lock from QSettings' own .lock.
+QStringList update_recent_history(const QString& key, int limit,
+                                  const std::function<void(QStringList&)>& update) {
+  auto settings = recent_history_settings();
+  std::unique_ptr<QLockFile> lock;
+  if (settings.format() == QSettings::IniFormat) {
+    QDir().mkpath(QFileInfo(settings.fileName()).absolutePath());
+    lock = std::make_unique<QLockFile>(settings.fileName() + QStringLiteral(".recent-lock"));
+    if (!lock->tryLock(1000)) {
+      qWarning("Could not lock recent history for update");
+      settings.sync();
+      return settings.value(key).toStringList();
+    }
+  }
+  settings.sync();
+  auto paths = settings.value(key).toStringList();
+  while (paths.size() > limit) paths.removeLast();
+  update(paths);
+  paths.removeDuplicates();
+  while (paths.size() > limit) paths.removeLast();
+  settings.setValue(key, paths);
+  settings.sync();
+  return paths;
+}
+
+bool is_photoshop_document_extension(const QString& extension) {
+  return extension == QStringLiteral("psd") || extension == QStringLiteral("psb");
+}
+
+bool is_affinity_document_extension(const QString& extension) {
+  return extension == QStringLiteral("af") || extension == QStringLiteral("afphoto") ||
+         extension == QStringLiteral("afdesign") || extension == QStringLiteral("afpub");
+}
+
+// Affinity "Image" layers (placed image files) import wrapped as embedded
+// smart objects; count them for the import-choice dialog.
+std::size_t count_smart_object_layers(const std::vector<Layer>& layers) {
+  std::size_t count = 0;
+  for (const auto& layer : layers) {
+    if (layer.kind() == LayerKind::Group) {
+      count += count_smart_object_layers(layer.children());
+    } else if (layer_is_smart_object(layer)) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void strip_smart_object_layers(Document& document, std::vector<Layer>& layers,
+                               std::vector<std::string>& source_uuids) {
+  for (auto& layer : layers) {
+    if (std::as_const(layer).kind() == LayerKind::Group) {
+      strip_smart_object_layers(document, layer.children(), source_uuids);
+      continue;
+    }
+    if (!layer_is_smart_object(std::as_const(layer))) {
+      continue;
+    }
+    source_uuids.push_back(smart_object_source_uuid(std::as_const(layer)));
+    strip_layer_smart_object_data(document, layer);
+  }
+}
+
+// Formats whose writers keep the document's layer structure: PSD/PSB and Aseprite save
+// the layer tree, and ICO/CUR are exempt because multi-size icons deliberately live as
+// one hidden "WxH" layer per size that their writers round-trip.
+bool save_extension_preserves_layers(const QString& extension) {
+  return is_photoshop_document_extension(extension) || extension == QStringLiteral("aseprite") ||
+         extension == QStringLiteral("ase") || extension == QStringLiteral("ico") ||
+         extension == QStringLiteral("cur");
+}
+
+// True when the session's file came from a format Patchy can only read (camera raw):
+// Save can never write back to such a path, so it must become Save As.
+//
+// PDF is listed explicitly rather than falling out of the registry, for two reasons. The
+// registry has no PDF row at all (the writer is Qt-side, in write_flat_image_file), and
+// more importantly a PDF import is a RASTERIZATION at a chosen resolution: saving over the
+// source would replace a multi-page vector document with one flat re-render. Save As and
+// Export to .pdf still work; only Save-in-place is redirected.
+bool is_read_only_source_extension(const QString& extension) {
+  if (extension.isEmpty()) {
+    return false;
+  }
+  if (is_pdf_extension(extension)) {
+    return true;
+  }
+  const auto* handler = builtin_format_registry().find_by_extension(extension.toStdString());
+  return handler != nullptr && !handler->can_write();
+}
+
+// Photoshop's "this format cannot store the document's features" test, reduced to what a
+// flat save discards in Patchy: a second layer or group, a non-pixel layer (group,
+// adjustment, text, smart object), a hand-authored mask, or layer styles. A single pixel
+// layer whose only mask is the document-alpha marker round-trips through flat formats
+// (the mask is written back as the file's alpha plane), so it does not count.
+bool flat_save_discards_layers(const Document& document) {
+  const auto& layers = document.layers();
+  if (layers.size() != 1) {
+    return !layers.empty();
+  }
+  const Layer& layer = layers.front();
+  if (layer.kind() != LayerKind::Pixel || !layer.children().empty() ||
+      layer_pixels_are_procedural(layer)) {
+    return true;
+  }
+  if (layer.mask().has_value() && !layer_mask_is_document_alpha(layer)) {
+    return true;
+  }
+  const auto blend_if_status = layer.blend_if_payload_status();
+  const bool has_blend_if = blend_if_status == BlendIfPayloadStatus::Unsupported
+                                ? !layer.raw_psd_blending_ranges().empty()
+                                : !blend_if_is_identity(layer.blend_if());
+  return !layer.layer_style().empty() || has_blend_if;
+}
+
+bool layers_have_nondefault_fill_opacity(const std::vector<Layer>& layers) {
+  for (const auto& layer : layers) {
+    if (layer.kind() != LayerKind::Group && std::abs(layer.fill_opacity() - 1.0F) > 0.0001F) {
+      return true;
+    }
+    if (layer.kind() == LayerKind::Group && layers_have_nondefault_fill_opacity(layer.children())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// The single source of truth for the file dialog filters: every open/save/export filter
+// string, the supported-extension checks, and the default-extension logic are generated from
+// this table. Adding a file format to Patchy means adding one row here (plus wiring the
+// registry/writer). Display names go through QCoreApplication::translate("QObject", ...) so
+// keep them inside QT_TRANSLATE_NOOP for lupdate.
+struct FileFormatEntry {
+  const char* display_name;
+  QStringList open_extensions;   // advertised in the Open dialog
+  QStringList save_extensions;   // empty = read-only; the FIRST one is the default extension
+  bool in_save_dialog;           // offered by File > Save As
+  bool in_export_dialog;         // offered by File > Export Flat Image
+};
+
+const QList<FileFormatEntry>& file_format_entries() {
+  static const QList<FileFormatEntry> entries = [] {
+    QList<FileFormatEntry> list = {
+      {QT_TRANSLATE_NOOP("QObject", "Photoshop Document"),
+       {QStringLiteral("psd"), QStringLiteral("psb")},
+       {QStringLiteral("psd"), QStringLiteral("psb")},
+       true,
+       false},
+      {QT_TRANSLATE_NOOP("QObject", "PNG Image"),
+       {QStringLiteral("png")},
+       {QStringLiteral("png")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "JPEG Image"),
+       {QStringLiteral("jpg"), QStringLiteral("jpeg")},
+       {QStringLiteral("jpg"), QStringLiteral("jpeg")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "Bitmap Image"),
+       {QStringLiteral("bmp")},
+       {QStringLiteral("bmp")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "TIFF Image"),
+       {QStringLiteral("tif"), QStringLiteral("tiff")},
+       {QStringLiteral("tif"), QStringLiteral("tiff")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "WebP Image"),
+       {QStringLiteral("webp")},
+       {QStringLiteral("webp")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "GIF Image"),
+       {QStringLiteral("gif")},
+       {QStringLiteral("gif")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "Aseprite Image"),
+       {QStringLiteral("aseprite"), QStringLiteral("ase")},
+       {QStringLiteral("aseprite")},
+       true,
+       false},
+      {QT_TRANSLATE_NOOP("QObject", "Targa Image"),
+       {QStringLiteral("tga")},
+       {QStringLiteral("tga")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "Windows Icon"),
+       {QStringLiteral("ico")},
+       {QStringLiteral("ico")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "Windows Cursor"),
+       {QStringLiteral("cur")},
+       {QStringLiteral("cur")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "PCX Image"),
+       {QStringLiteral("pcx")},
+       {QStringLiteral("pcx")},
+       true,
+       true},
+      {QT_TRANSLATE_NOOP("QObject", "Amiga IFF Image"),
+       {QStringLiteral("lbm"), QStringLiteral("iff"), QStringLiteral("bbm")},
+       {QStringLiteral("lbm"), QStringLiteral("iff")},
+       true,
+       true},
+      // SVG opens as editable shape layers and saves/exports with vectors
+      // preserved (the layered svg writer, not write_flat_image_file). It
+      // stays OUT of save_extension_preserves_layers on purpose: masks,
+      // styles, and text bake on save, so layered saves keep Photoshop's
+      // warn + save-a-copy semantics. .svgz is read-only.
+      {QT_TRANSLATE_NOOP("QObject", "SVG Image"),
+       {QStringLiteral("svg"), QStringLiteral("svgz")},
+       {QStringLiteral("svg")},
+       true,
+       true},
+    };
+    // PDF writes everywhere (QPdfWriter is QtGui) but only reads where the optional Qt PDF
+    // add-on is present, so the open half of the row is conditional. The writer lives on the
+    // Qt side in write_flat_image_file, which is why the format registry carries no PDF row
+    // at all; see is_read_only_source_extension for what that means for Save.
+    list.push_back({QT_TRANSLATE_NOOP("QObject", "PDF Document"),
+                    pdf_import_is_available() ? QStringList{QStringLiteral("pdf")} : QStringList{},
+                    {QStringLiteral("pdf")},
+                    true,
+                    true});
+    // Camera raws open through the develop pipeline and are never written: empty
+    // save_extensions marks the entry read-only, so Save As/Export skip it. The extension
+    // list lives with the raw reader so the registry and the dialogs cannot drift apart.
+    QStringList camera_raw_extensions;
+    for (const auto& extension : raw::camera_raw_extensions()) {
+      camera_raw_extensions.push_back(QString::fromStdString(extension));
+    }
+    list.push_back({QT_TRANSLATE_NOOP("QObject", "Camera Raw Image"),
+                    camera_raw_extensions,
+                    {},
+                    false,
+                    false});
+    // Affinity documents open read-only, so the entry has no save extensions like
+    // camera raw and HEIF. The Affinity 2.x generations (.afphoto/.afdesign/.afpub)
+    // share the .af container and grammar, so the one row claims them all.
+    list.push_back({QT_TRANSLATE_NOOP("QObject", "Affinity Document"),
+                    {QStringLiteral("af"), QStringLiteral("afphoto"), QStringLiteral("afdesign"),
+                     QStringLiteral("afpub")},
+                    {},
+                    false,
+                    false});
+    // HEIF/HEIC is decode-only like camera raw (platform codecs never encode for us and
+    // Patchy must not ship an HEVC encoder), so its entry is read-only too.
+    QStringList heif_extensions;
+    for (const auto& extension : heif::heif_extensions()) {
+      heif_extensions.push_back(QString::fromStdString(extension));
+    }
+    list.push_back({QT_TRANSLATE_NOOP("QObject", "HEIF Image"),
+                    heif_extensions,
+                    {},
+                    false,
+                    false});
+    // JPEG XR reads and writes, but only where the in-box Windows codec exists: Qt has no
+    // JPEG XR plugin, so on macOS/Linux/wasm the row would advertise an open and a save that
+    // can only fail. Gate the whole row like the PDF row's conditional open half.
+    QStringList jxr_extensions;
+    for (const auto& extension : jxr::jxr_extensions()) {
+      jxr_extensions.push_back(QString::fromStdString(extension));
+    }
+    list.push_back({QT_TRANSLATE_NOOP("QObject", "JPEG XR Image"),
+                    jxr::is_available() ? jxr_extensions : QStringList{},
+                    jxr::is_available() ? jxr_extensions : QStringList{},
+                    jxr::is_available(),
+                    jxr::is_available()});
+    // Proton SDK textures read and write on every platform: the codec is Patchy's own (raw
+    // pixels or an embedded JPEG inside a zlib container), so nothing gates the row.
+    QStringList rttex_extensions;
+    for (const auto& extension : rttex::rttex_extensions()) {
+      rttex_extensions.push_back(QString::fromStdString(extension));
+    }
+    list.push_back({QT_TRANSLATE_NOOP("QObject", "Proton Texture"), rttex_extensions, rttex_extensions, true, true});
+    return list;
+  }();
+  return entries;
+}
+
+QString extension_patterns(const QStringList& extensions) {
+  QStringList patterns;
+  patterns.reserve(extensions.size());
+  for (const auto& extension : extensions) {
+    patterns.push_back(QStringLiteral("*.") + extension);
+  }
+  return patterns.join(QLatin1Char(' '));
+}
+
+QString format_filter_entry(const FileFormatEntry& entry, const QStringList& extensions) {
+  return QStringLiteral("%1 (%2)").arg(translate_data_text(entry.display_name),
+                                       extension_patterns(extensions));
+}
+
+QString open_file_filter() {
+  QStringList all_extensions;
+  for (const auto& entry : file_format_entries()) {
+    for (const auto& extension : entry.open_extensions) {
+      all_extensions.push_back(extension);
+    }
+  }
+  // One dropdown row per format so every supported filetype is readable in the dialog.
+  // The open dialogs run with HideNameFilterDetails: Qt displays only the text left of
+  // the LAST "(" and filters with the parenthesized list after it, so each row is
+  // written as "Name (patterns) (patterns)". The duplication is deliberate: the first
+  // copy is the visible name, the second is the machine-read pattern spec. A "*."
+  // token must stay in the visible name because the Windows 11 dialog re-appends the
+  // whole semicolon-joined spec to any filter name without one (verified empirically,
+  // July 2026); that is also why the all-formats row shows a short hint instead of its
+  // ~50 patterns, which would run off screen.
+  const auto supported_name =
+      QObject::tr("Supported Files (%1 and more)").arg(QStringLiteral("*.psd *.png *.jpg"));
+  QStringList filters;
+  filters.push_back(QStringLiteral("%1 (%2)").arg(supported_name, extension_patterns(all_extensions)));
+  for (const auto& entry : file_format_entries()) {
+    if (entry.open_extensions.isEmpty()) {
+      continue;
+    }
+    filters.push_back(QStringLiteral("%1 (%2) (%2)").arg(
+        translate_data_text(entry.display_name), extension_patterns(entry.open_extensions)));
+  }
+  filters.push_back(QStringLiteral("%1 (*.*)").arg(QObject::tr("All Files (*.*)")));
+  return filters.join(QStringLiteral(";;"));
+}
+
+QString save_file_filter() {
+  QStringList filters;
+  for (const auto& entry : file_format_entries()) {
+    if (entry.in_save_dialog && !entry.save_extensions.isEmpty()) {
+      filters.push_back(format_filter_entry(entry, entry.save_extensions));
+    }
+  }
+  return filters.join(QStringLiteral(";;"));
+}
+
+QString export_image_filter() {
+  QStringList filters;
+  for (const auto& entry : file_format_entries()) {
+    if (entry.in_export_dialog && !entry.save_extensions.isEmpty()) {
+      filters.push_back(format_filter_entry(entry, entry.save_extensions));
+    }
+  }
+  return filters.join(QStringLiteral(";;"));
+}
+
+QString last_open_directory() {
+  auto settings = app_settings();
+  const auto path = settings.value(QStringLiteral("lastOpenDirectory")).toString();
+  if (!path.isEmpty()) {
+    const QFileInfo info(path);
+    if (info.isDir()) {
+      return info.absoluteFilePath();
+    }
+  }
+  return default_file_dialog_directory();
+}
+
+void remember_open_directory_for_path(const QString& path) {
+  const QFileInfo info(path);
+  const auto directory = info.absoluteDir();
+  if (!directory.exists()) {
+    return;
+  }
+  auto settings = app_settings();
+  settings.setValue(QStringLiteral("lastOpenDirectory"), directory.absolutePath());
+}
+
+QString extension_for_path(const QString& path) {
+  return QFileInfo(path).suffix().toLower();
+}
+
+QString save_file_filter_for_path(const QString& path) {
+  const auto extension = extension_for_path(path);
+  if (extension.isEmpty()) {
+    return {};
+  }
+  for (const auto& entry : file_format_entries()) {
+    if (!entry.in_save_dialog || entry.save_extensions.isEmpty()) {
+      continue;
+    }
+    if (entry.save_extensions.contains(extension) || entry.open_extensions.contains(extension)) {
+      return format_filter_entry(entry, entry.save_extensions);
+    }
+  }
+  return {};
+}
+
+bool is_supported_image_extension(const QString& extension) {
+  if (is_photoshop_document_extension(extension)) {
+    return false;
+  }
+  for (const auto& entry : file_format_entries()) {
+    if (entry.open_extensions.contains(extension)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool is_supported_open_path(const QString& path) {
+  const QFileInfo info(path);
+  if (!info.isFile()) {
+    return false;
+  }
+
+  const auto extension = info.suffix().toLower();
+  if (is_photoshop_document_extension(extension) || is_supported_image_extension(extension)) {
+    return true;
+  }
+  // A .pdf is recognized even where the import module is missing (wasm, a desktop Qt
+  // without the add-on): the open path then explains that this build cannot read PDFs,
+  // and on wasm where to get one that can, instead of a generic unsupported-drop status.
+  if (is_pdf_extension(extension)) {
+    return true;
+  }
+  return !QImageReader::imageFormat(path).isEmpty();
+}
+
+struct UnsupportedBlendIfCounts {
+  std::size_t layer_payloads{0};
+  std::size_t group_boundaries{0};
+};
+
+void count_unsupported_blend_if(const std::vector<Layer>& layers, UnsupportedBlendIfCounts& counts) {
+  for (const auto& layer : layers) {
+    if (!layer.raw_psd_blending_ranges().empty() &&
+        layer.blend_if_payload_status() == BlendIfPayloadStatus::Unsupported) {
+      ++counts.layer_payloads;
+    }
+    if (blend_if_payload_has_non_identity_or_unsupported(layer.raw_psd_group_boundary_blending_ranges())) {
+      ++counts.group_boundaries;
+    }
+    count_unsupported_blend_if(layer.children(), counts);
+  }
+}
+
+QString unsupported_blend_if_import_notice(const Document& document) {
+  UnsupportedBlendIfCounts counts;
+  count_unsupported_blend_if(document.layers(), counts);
+  if (counts.layer_payloads == 0U && counts.group_boundaries == 0U) {
+    return {};
+  }
+  if (counts.group_boundaries == 0U) {
+    return QObject::tr("MyAIPs preserved unsupported Photoshop Blend If payloads but does not render or edit them "
+                       "(%1 layer(s)).")
+        .arg(counts.layer_payloads);
+  }
+  if (counts.layer_payloads == 0U) {
+    return QObject::tr("MyAIPs preserved Blend If data on Photoshop group-boundary records but does not render or "
+                       "edit it (%1 group(s)).")
+        .arg(counts.group_boundaries);
+  }
+  return QObject::tr("MyAIPs preserved unsupported Photoshop Blend If data without rendering it (%1 layer "
+                     "payload(s), %2 group-boundary record(s)).")
+      .arg(counts.layer_payloads)
+      .arg(counts.group_boundaries);
+}
+
+QStringList supported_local_open_paths(const QMimeData* mime_data) {
+  QStringList paths;
+  if (mime_data == nullptr || !mime_data->hasUrls()) {
+    return paths;
+  }
+
+  for (const auto& url : mime_data->urls()) {
+    if (!url.isLocalFile()) {
+      continue;
+    }
+    const auto path = QDir::toNativeSeparators(url.toLocalFile());
+    if (is_supported_open_path(path) && !paths.contains(path)) {
+      paths.push_back(path);
+    }
+  }
+  return paths;
+}
+
+// Dropped fonts (or a zip of fonts) register into the session instead of
+// opening as documents; same isLocalFile filtering as the open paths.
+QStringList font_or_zip_local_paths(const QMimeData* mime_data) {
+  QStringList paths;
+  if (mime_data == nullptr || !mime_data->hasUrls()) {
+    return paths;
+  }
+  for (const auto& url : mime_data->urls()) {
+    if (!url.isLocalFile()) {
+      continue;
+    }
+    const auto path = QDir::toNativeSeparators(url.toLocalFile());
+    if (!QFileInfo(path).isFile() || paths.contains(path)) {
+      continue;
+    }
+    if (user_fonts::is_user_font_path(path) || user_fonts::is_zip_path(path)) {
+      paths.push_back(path);
+    }
+  }
+  return paths;
+}
+
+QString translated_file_message(const std::string& message) {
+  const auto text = QString::fromStdString(message);
+  const auto layer_note = [&](const char* suffix, const QString& translated) -> QString {
+    const auto ending = QString::fromLatin1(suffix);
+    if (text.startsWith(QStringLiteral("Layer '")) && text.endsWith(ending)) {
+      return translated.arg(text.mid(7, text.size() - 7 - ending.size()));
+    }
+    return {};
+  };
+  if (auto note = layer_note("': invalid Gaussian blur radius; effect skipped",
+                            QObject::tr("Layer '%1': invalid Gaussian blur radius; effect skipped"));
+      !note.isEmpty()) {
+    return note;
+  }
+  if (auto note = layer_note("': Gaussian blur could not be applied; original pixels kept",
+                            QObject::tr("Layer '%1': Gaussian blur could not be applied; original pixels kept"));
+      !note.isEmpty()) {
+    return note;
+  }
+  // Core readers are Qt-free; localize their fixed diagnostic text at the UI boundary.
+  return translate_data_text(message);
+}
+
+struct OpenDocumentResult {
+  Document document;
+  QString file_name;
+  QString extension;
+  // User-facing notes about features the reader dropped or approximated (for example
+  // "imported the first frame only"); shown in the Import Notes dialog after the open.
+  QStringList import_notices;
+};
+
+std::vector<std::uint8_t> read_all_file_bytes(const QString& path) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) {
+    throw std::runtime_error(QStringLiteral("Unable to open file: %1").arg(path).toStdString());
+  }
+  const auto data = file.readAll();
+  const auto* bytes = reinterpret_cast<const std::uint8_t*>(data.constData());
+  return std::vector<std::uint8_t>(bytes, bytes + data.size());
+}
+
+bool is_svg_extension(const QString& extension) {
+  return extension == QStringLiteral("svg") || extension == QStringLiteral("svgz");
+}
+
+// Whether an animated GIF export would have at least one frame (visible top-level layers
+// become the frames).
+bool has_visible_top_level_layer(const Document& document) {
+  const auto& layers = document.layers();
+  return std::any_of(layers.begin(), layers.end(), [](const Layer& layer) { return layer.visible(); });
+}
+
+OpenDocumentResult load_document_from_path(QString path) {
+  const auto info = QFileInfo(path);
+  const auto extension = info.suffix().toLower();
+  Document opened;
+  QStringList import_notices;
+  const auto load_via_qt = [&] {
+    QImageReader reader(path);
+    reader.setAutoTransform(true);
+    const auto image = reader.read();
+    if (image.isNull()) {
+      throw std::runtime_error(reader.errorString().toStdString());
+    }
+    // Animated GIFs import every frame as a layer, frame 1 on TOP and all layers visible,
+    // each frame's delay stamped as a trailing seconds token ("Frame 3 0.4s") that the
+    // animated GIF export parses back, so a straight open-then-save round-trips. qgif
+    // returns fully composited full-canvas frames; nextImageDelay() is the just-read
+    // frame's delay in milliseconds (natively centiseconds * 10).
+    if (extension == QStringLiteral("gif") && reader.supportsAnimation() && reader.imageCount() > 1) {
+      std::vector<QImage> frames;
+      QStringList layer_names;
+      frames.push_back(image);
+      layer_names.push_back(
+          QObject::tr("Frame %1").arg(1) + QLatin1Char(' ') +
+          QString::fromStdString(gif::format_delay_seconds_token(static_cast<std::uint16_t>(
+              std::clamp<long long>(std::llround(reader.nextImageDelay() / 10.0), 0, 0xffff)))));
+      for (int i = 1; i < reader.imageCount(); ++i) {
+        auto frame = reader.read();
+        if (frame.isNull()) {
+          break;  // a damaged tail keeps the frames that decoded
+        }
+        const auto delay_cs = static_cast<std::uint16_t>(
+            std::clamp<long long>(std::llround(reader.nextImageDelay() / 10.0), 0, 0xffff));
+        layer_names.push_back(QObject::tr("Frame %1").arg(i + 1) + QLatin1Char(' ') +
+                              QString::fromStdString(gif::format_delay_seconds_token(delay_cs)));
+        frames.push_back(std::move(frame));
+      }
+      if (frames.size() > 1) {
+        const auto frame_count = static_cast<int>(frames.size());
+        auto imported = document_from_frames(std::move(frames), layer_names,
+                                             {.first_frame_on_top = true, .all_layers_visible = true});
+        if (imported.has_value()) {
+          opened = std::move(*imported);
+          apply_imported_image_density(opened, read_all_file_bytes(path), image);
+          // Always 2+ frames here, so the plain plural reads right.
+          import_notices.push_back(QObject::tr("Animated GIF: imported %1 frames as layers").arg(frame_count));
+          return;
+        }
+      }
+    }
+    if (reader.supportsAnimation()) {
+      const auto frames = reader.imageCount();
+      if (frames > 1) {
+        import_notices.push_back(
+            QObject::tr("Animated image: imported the first frame only (%1 frames in the file)").arg(frames));
+      }
+    }
+    opened = document_from_qimage(image, info.completeBaseName().toStdString());
+    apply_imported_image_density(opened, read_all_file_bytes(path), image);
+  };
+  // PDF before the registry, like PSD: the reader is Qt PDF, which cannot live in the
+  // Qt-free format registry. This is the non-interactive path (CLI opens, tests, Reopen),
+  // so it renders page 1 at the remembered resolution and says so; the Open command goes
+  // through the page picker in load_document_interactive first.
+  if (is_pdf_extension(extension)) {
+    PdfImportOptions pdf_options;
+    pdf_options.resolution_ppi =
+        app_settings().value(QStringLiteral("imports/pdfResolution"), pdf_options.resolution_ppi).toInt();
+    QString pdf_error;
+    auto pdf_result = load_pdf_document(path, pdf_options, QString(), &pdf_error);
+    if (!pdf_result.has_value()) {
+      throw std::runtime_error(pdf_error.toStdString());
+    }
+    for (const auto& notice : pdf_result->notices) {
+      import_notices.push_back(translated_file_message(notice));
+    }
+    opened = std::move(pdf_result->document);
+  } else if (is_photoshop_document_extension(extension)) {
+    std::vector<std::string> psd_notices;
+    psd::ReadOptions psd_options{true, false, true};
+    psd_options.notices = &psd_notices;
+    opened = psd::DocumentIo::read_file(to_filesystem_path(path), psd_options);
+    for (const auto& notice : psd_notices) {
+      import_notices.push_back(translated_file_message(notice));
+    }
+    if (const auto notice = unsupported_blend_if_import_notice(opened); !notice.isEmpty()) {
+      import_notices.push_back(notice);
+    }
+    // Linked-file staleness: compare each external source's stored date/size with
+    // the file on disk (Photoshop's own check). These are actionable, so they go
+    // FIRST in the notice list (the status bar shows only the leading note).
+    QStringList link_notices;
+    const auto document_dir = info.absolutePath();
+    for (const auto& block : std::as_const(opened.metadata().smart_objects.blocks)) {
+      for (const auto& source : block.sources) {
+        if (source.kind != SmartObjectSourceKind::ExternalFile) {
+          continue;
+        }
+        const auto file_name = QString::fromStdString(source.filename);
+        const auto resolved = resolve_smart_object_external_path(source, document_dir);
+        if (!resolved.has_value()) {
+          link_notices.push_back(QObject::tr("Linked file %1 was not found").arg(file_name));
+          continue;
+        }
+        const QFileInfo linked_info(*resolved);
+        const auto modified = linked_info.lastModified();
+        const bool size_changed = source.external_file_size != 0U &&
+                                  static_cast<std::uint64_t>(linked_info.size()) != source.external_file_size;
+        const bool date_changed =
+            source.external_mod_year != 0 &&
+            (modified.date().year() != source.external_mod_year ||
+             modified.date().month() != source.external_mod_month ||
+             modified.date().day() != source.external_mod_day ||
+             modified.time().hour() != source.external_mod_hour ||
+             modified.time().minute() != source.external_mod_minute);
+        if (size_changed || date_changed) {
+          link_notices.push_back(
+              QObject::tr("Linked file %1 has changed on disk; use Update Smart Object Content")
+                  .arg(file_name));
+        }
+      }
+    }
+    for (int i = 0; i < link_notices.size(); ++i) {
+      import_notices.insert(i, link_notices.at(i));
+    }
+  } else if (raw::is_camera_raw_extension(extension.toStdString())) {
+    const auto settings = load_raw_develop_settings(path);
+    auto result = raw::read_camera_raw(read_all_file_bytes(path), settings.params);
+    opened = std::move(result.document);
+    if (!settings.notice.isEmpty()) import_notices.push_back(settings.notice);
+  } else if (const auto* handler = builtin_format_registry().find_by_extension(extension.toStdString());
+             handler != nullptr) {
+    try {
+      auto result = handler->read(read_all_file_bytes(path));
+      opened = std::move(result.document);
+      for (const auto& notice : result.notices) {
+        import_notices.push_back(translated_file_message(notice));
+      }
+      // Containers with no density concept open at Photoshop's untagged 72 PPI
+      // (their readers construct Documents with the 300 PPI new-document default).
+      // BMP/HEIF/camera-raw record real densities and keep what their reader set.
+      static const std::set<std::string> kDensitylessFormats = {
+          "patchy.formats.ico", "patchy.formats.tga", "patchy.formats.aseprite",
+          "patchy.formats.pcx", "patchy.formats.ilbm", "patchy.formats.rttex"};
+      if (kDensitylessFormats.contains(handler->identifier)) {
+        opened.print_settings().horizontal_ppi = kUntaggedImportPpi;
+        opened.print_settings().vertical_ppi = kUntaggedImportPpi;
+      }
+      // The SVG reader sets its own density (96 PPI for physical units, 72
+      // otherwise), so it is deliberately not in the densityless set.
+      if (is_svg_extension(extension)) {
+        decode_pending_svg_images(opened.layers(), import_notices);
+      }
+    } catch (const std::exception& registry_error) {
+      // Nonstandard files that a Qt plugin still understands (e.g. OS/2 BMPs) keep opening
+      // through the Qt fallback; when Qt cannot read them either, report the registry
+      // reader's error, which names the real problem. Native macOS/Linux HEIC/HEIF
+      // relies on this by design: the registry read always throws there and Qt's
+      // platform plugin (qmacheif / the KDE runtime's kimg_heif) does the decoding.
+      QImageReader reader(path);
+      reader.setAutoTransform(true);
+      auto image = reader.read();
+      if (image.isNull()) {
+        throw std::runtime_error(registry_error.what());
+      }
+      const bool heif_family = heif::is_heif_extension(extension.toStdString());
+      if (heif_family && image.colorSpace().isValid() && image.colorSpace() != QColorSpace::SRgb) {
+        // kimg_heif attaches the file's color space (iPhone = Display P3) without
+        // converting; bake to sRGB so pixels match the Windows/macOS decode paths. Scoped
+        // to HEIF so existing PNG/JPEG opens keep their bytes.
+        image.convertToColorSpace(QColorSpace::SRgb);
+      }
+      // HEIF opens name their layer "Background" on every platform (the Windows WIC
+      // reader's convention); other fallback formats keep the historical file-name label.
+      opened = document_from_qimage(image, heif_family ? std::string("Background")
+                                                       : info.completeBaseName().toStdString());
+      apply_imported_image_density(opened, read_all_file_bytes(path), image);
+      if (is_svg_extension(extension)) {
+        // The editable importer refused (too complex / past the supported
+        // subset) and the qsvg plugin rasterized instead - say so, with why.
+        import_notices.push_back(QObject::tr("SVG was imported as flattened raster: %1")
+                                     .arg(QString::fromUtf8(registry_error.what())));
+      }
+    }
+  } else {
+    load_via_qt();
+  }
+  // Flat images (BMP/PNG/TIFF) carry their alpha as a per-pixel channel. Move a
+  // meaningful alpha into an editable layer mask so it is visible and paintable,
+  // matching Photoshop's "Alpha 1". PSD/PSB sources are excluded: flat ones are
+  // promoted inside the reader (saved alpha channels), while a layered file's single
+  // layer OWNS its transparency; promoting it grew a phantom mask on single-text-layer
+  // files like the table tent's Content.psb and would push authored transparency into
+  // a document alpha channel on resave. SVG is excluded for the same structural
+  // reason: its layers own their transparency, and the promotion's set_pixels would
+  // clobber a lone placed <image> layer's offset bounds.
+  if (!opened.metadata().values.contains("psd.version") && !is_svg_extension(extension)) {
+    promote_flat_alpha_to_layer_mask(opened);
+  }
+  if (const auto default_layer_id = default_non_group_layer_id(opened.layers()); default_layer_id.has_value()) {
+    opened.set_active_layer(*default_layer_id);
+  } else {
+    opened.clear_active_layer();
+  }
+  return OpenDocumentResult{std::move(opened), info.fileName(), extension, std::move(import_notices)};
+}
+
+// Shows the open-failure box. Browser HEIC errors get a capability-focused message.
+// Windows HEIC errors carry a marker naming the missing Microsoft Store codec package
+// (heif_document_io.hpp); those get an extra button that deep-links to that package's
+// Store page, Photos-app style.
+void show_open_failed_message_box(QWidget* parent, const QString& error_text) {
+  QString display_text = error_text;
+  QString store_product_id;
+  // The wasm PDF stub's error: strip the marker and add a download button, Store-button
+  // style, because the fix (the desktop build) is a link away.
+  const auto pdf_desktop_only_marker = QString::fromUtf8(
+      kPdfDesktopOnlyMarker.data(), static_cast<qsizetype>(kPdfDesktopOnlyMarker.size()));
+  if (error_text.startsWith(pdf_desktop_only_marker)) {
+    QMessageBox dialog(QMessageBox::Critical, QObject::tr("Open failed"),
+                       error_text.mid(pdf_desktop_only_marker.size()).trimmed(), QMessageBox::Ok, parent);
+    dialog.setObjectName(QStringLiteral("openFailedMessageBox"));
+    auto* download_button = dialog.addButton(QObject::tr("Get the Desktop Version"), QMessageBox::ActionRole);
+    dialog.setDefaultButton(download_button);
+    exec_dialog(dialog);
+    if (dialog.clickedButton() == download_button) {
+      QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/SethRobinson/Patchy#download")));
+    }
+    return;
+  }
+  const auto browser_hevc_marker =
+      QString::fromUtf8(heif::kBrowserHevcUnavailableMarker.data(),
+                        static_cast<qsizetype>(heif::kBrowserHevcUnavailableMarker.size()));
+  if (error_text.startsWith(browser_hevc_marker)) {
+    show_critical_message(
+        parent, QObject::tr("Open failed"),
+        QObject::tr("This browser or device cannot decode this HEIC image because an HEVC "
+                    "decoder is unavailable. Try another current browser or device with HEVC "
+                    "support."),
+        QStringLiteral("openFailedMessageBox"));
+    return;
+  }
+  const auto browser_decode_marker =
+      QString::fromUtf8(heif::kBrowserHeifDecodeFailedMarker.data(),
+                        static_cast<qsizetype>(heif::kBrowserHeifDecodeFailedMarker.size()));
+  if (error_text.startsWith(browser_decode_marker)) {
+    show_critical_message(
+        parent, QObject::tr("Open failed"),
+        QObject::tr("MyAIPs could not decode this HEIC image. The file may be damaged or use "
+                    "a profile this browser does not support."),
+        QStringLiteral("openFailedMessageBox"));
+    return;
+  }
+  const auto try_marker = [&](std::string_view marker, std::string_view product_id) {
+    const auto prefix = QString::fromUtf8(marker.data(), static_cast<qsizetype>(marker.size()));
+    if (!error_text.startsWith(prefix)) {
+      return false;
+    }
+    display_text = error_text.mid(prefix.size()).trimmed();
+    store_product_id = QString::fromUtf8(product_id.data(), static_cast<qsizetype>(product_id.size()));
+    return true;
+  };
+  if (!try_marker(heif::kHeifPackageMissingMarker, heif::kHeifStoreProductId)) {
+    try_marker(heif::kHevcPackageMissingMarker, heif::kHevcStoreProductId);
+  }
+  if (store_product_id.isEmpty()) {
+    show_critical_message(parent, QObject::tr("Open failed"), display_text, QStringLiteral("openFailedMessageBox"));
+    return;
+  }
+  QMessageBox dialog(QMessageBox::Critical, QObject::tr("Open failed"), display_text, QMessageBox::Ok, parent);
+  dialog.setObjectName(QStringLiteral("openFailedMessageBox"));
+  auto* store_button = dialog.addButton(QObject::tr("Open Microsoft Store"), QMessageBox::ActionRole);
+  dialog.setDefaultButton(store_button);
+  exec_dialog(dialog);
+  if (dialog.clickedButton() == store_button) {
+    QDesktopServices::openUrl(QUrl(QStringLiteral("ms-windows-store://pdp/?ProductId=%1").arg(store_product_id)));
+  }
+}
+
+QString path_with_default_extension(QString path, const QString& selected_filter) {
+  if (!QFileInfo(path).suffix().isEmpty()) {
+    return path;
+  }
+
+  for (const auto& entry : file_format_entries()) {
+    if (entry.save_extensions.isEmpty()) {
+      continue;
+    }
+    for (const auto& extension : entry.save_extensions) {
+      if (selected_filter.contains(QStringLiteral("*.") + extension)) {
+        return path + QLatin1Char('.') + entry.save_extensions.front();
+      }
+    }
+  }
+  return path + QStringLiteral(".psd");
+}
+
+// Interactive-open machinery shared by open_document_path and the document-tab
+// Reopen command. Camera raws get the interactive develop step (white balance,
+// exposure, ...) and nullopt means the user cancelled it there; with the
+// preference off or from a script, the shared file-opening path reads the photo's
+// sidecar. Everything else loads on a worker thread
+// behind a modal progress dialog so big documents keep the UI responsive.
+// Load failures propagate as exceptions.
+std::optional<OpenDocumentResult> load_document_interactive(QWidget* parent, const QString& path,
+                                                          bool interactive, bool allow_raw_dialog) {
+  const QFileInfo info(path);
+  const auto extension = info.suffix().toLower();
+  if (interactive && allow_raw_dialog && raw::is_camera_raw_extension(extension.toStdString()) &&
+      app_settings().value(QStringLiteral("imports/showRawDevelopDialog"), true).toBool()) {
+    auto outcome = run_raw_develop_dialog(parent, path);
+    if (!outcome.has_value()) {
+      return std::nullopt;
+    }
+    OpenDocumentResult loaded{std::move(outcome->document), info.fileName(), extension, {}};
+    if (const auto default_layer_id = default_non_group_layer_id(loaded.document.layers());
+        default_layer_id.has_value()) {
+      loaded.document.set_active_layer(*default_layer_id);
+    }
+    return loaded;
+  }
+  // PDFs get their page picker before the worker load, the same way raws get the develop
+  // dialog: the pages and the rasterization resolution have to be chosen before anything
+  // is rendered. There is no preference to skip it, because there is no sane default page
+  // set for a multi-page file.
+  if (interactive && is_pdf_extension(extension) && pdf_import_is_available()) {
+    auto outcome = run_pdf_import_dialog(parent, path);
+    if (!outcome.has_value()) {
+      return std::nullopt;
+    }
+    QStringList notices;
+    notices.reserve(static_cast<qsizetype>(outcome->notices.size()));
+    for (const auto& notice : outcome->notices) {
+      notices.push_back(QString::fromStdString(notice));
+    }
+    OpenDocumentResult loaded{std::move(outcome->document), info.fileName(), extension, std::move(notices)};
+    if (const auto default_layer_id = default_non_group_layer_id(loaded.document.layers());
+        default_layer_id.has_value()) {
+      loaded.document.set_active_layer(*default_layer_id);
+    }
+    return loaded;
+  }
+
+  QProgressDialog progress(MainWindow::tr("Opening %1...").arg(info.fileName()), QString(), 0, 0, parent);
+  progress.setObjectName(QStringLiteral("openProgressDialog"));
+  progress.setWindowTitle(
+      MainWindow::tr("Opening %1").arg(elided_open_progress_title_file_name(progress, info.fileName())));
+  progress.setWindowModality(Qt::WindowModal);
+  progress.setMinimumDuration(0);
+  progress.setCancelButton(nullptr);
+  progress.setAutoClose(false);
+  progress.setAutoReset(false);
+  remember_dialog_position(progress);
+  progress.show();
+  progress.raise();
+  progress.activateWindow();
+  QApplication::processEvents();
+  const auto close_progress = qScopeGuard([&progress] {
+    progress.close();
+    QApplication::processEvents();
+  });
+  Q_UNUSED(close_progress);
+
+#if defined(Q_OS_WASM) && defined(__EMSCRIPTEN_PTHREADS__)
+  // future.wait_for on the browser main thread busy-spins (the main thread
+  // cannot Atomics.wait), so the pump below would starve the browser event
+  // loop for the whole load: no dialog frames, and the tab gets flagged
+  // unresponsive. Wait in an event loop instead; idle exec suspends through
+  // Asyncify, the dialog paints, and the worker's queued completion ends the
+  // wait. The references stay valid because this function only returns after
+  // the loop quits, which the worker posts after it is done touching them.
+  std::optional<OpenDocumentResult> loaded;
+  const auto error = std::make_shared<std::exception_ptr>();
+  QEventLoop wait_loop;
+  auto* app = QCoreApplication::instance();
+  run_tracked_background_worker([&loaded, error, app, &wait_loop, path] {
+    try {
+      loaded = load_document_from_path(path);
+    } catch (...) {
+      *error = std::current_exception();
+    }
+    if (app == nullptr) {
+      return;
+    }
+    QMetaObject::invokeMethod(app, [&wait_loop] { wait_loop.quit(); }, Qt::QueuedConnection);
+  });
+  wait_loop.exec();
+  if (*error) {
+    std::rethrow_exception(*error);
+  }
+  return loaded;
+#else
+  auto open_future = launch_async([path] { return load_document_from_path(path); });
+  while (open_future.wait_for(std::chrono::milliseconds(15)) != std::future_status::ready) {
+    QApplication::processEvents(QEventLoop::AllEvents, 15);
+  }
+
+  return open_future.get();
+#endif
+}
+
+// The status-message tail for a layer-keeping writer's notices: the first note verbatim,
+// the rest counted.
+QString export_notes_suffix_for(const std::vector<std::string>& notices) {
+  if (notices.empty()) {
+    return QString();
+  }
+  QString suffix = QStringLiteral(" ") + translate_data_text(notices.front());
+  if (notices.size() > 1) {
+    suffix += QObject::tr(" (+%n more export note(s))", nullptr, static_cast<int>(notices.size()) - 1);
+  }
+  return suffix;
+}
+
+// Divide-photos save-format combo rows: the flat-image export formats, minus
+// SVG (the layered writer, not write_flat_image_file) and the icon/cursor
+// formats (their sizes make no sense for a photo batch).
+std::vector<DividePhotosFormatChoice> divide_photos_format_choices() {
+  std::vector<DividePhotosFormatChoice> choices;
+  for (const auto& entry : file_format_entries()) {
+    if (!entry.in_export_dialog || entry.save_extensions.isEmpty()) {
+      continue;
+    }
+    const QString& extension = entry.save_extensions.front();
+    if (extension == QStringLiteral("svg") || extension == QStringLiteral("ico") ||
+        extension == QStringLiteral("cur")) {
+      continue;
+    }
+    choices.push_back({translate_data_text(entry.display_name), extension});
+  }
+  return choices;
+}
+
+// prefix + zero-padded index + "." + extension; pads to 3 digits and grows
+// naturally past 999 (the image_sequence_file_names formatting).
+QString divide_photo_file_name(const QString& prefix, int index, const QString& extension) {
+  return prefix + QStringLiteral("%1").arg(index, 3, 10, QLatin1Char('0')) + QLatin1Char('.') +
+         extension;
+}
+
+}  // namespace
+
+void MainWindow::open_document() {
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+  // Multi-select: every picked file becomes its own document, in dialog order,
+  // exactly as a multi-file drop does; the last one opened ends up active.
+  const auto paths = get_open_file_names(this, tr("Open"), last_open_directory(), open_file_filter(), nullptr,
+                                         QStringLiteral("openFileDialog"), FilterNameDetails::Hidden);
+  for (const auto& path : paths) {
+    open_document_path(path);
+  }
+}
+
+bool MainWindow::accept_open_file_drag(QDropEvent* event) {
+  if (preview_dialog_edit_locked()) {
+    if (event != nullptr) {
+      event->ignore();
+    }
+    show_preview_dialog_edit_lock_message();
+    return false;
+  }
+  if (event == nullptr || (supported_local_open_paths(event->mimeData()).isEmpty() &&
+                           font_or_zip_local_paths(event->mimeData()).isEmpty())) {
+    if (event != nullptr) {
+      event->ignore();
+    }
+    return false;
+  }
+
+  if ((event->possibleActions() & Qt::CopyAction) != 0) {
+    event->setDropAction(Qt::CopyAction);
+    event->accept();
+  } else {
+    event->acceptProposedAction();
+  }
+  return true;
+}
+
+bool MainWindow::open_dropped_files(QDropEvent* event) {
+  if (preview_dialog_edit_locked()) {
+    if (event != nullptr) {
+      event->ignore();
+    }
+    show_preview_dialog_edit_lock_message();
+    return false;
+  }
+  if (event == nullptr) {
+    return false;
+  }
+
+  const auto paths = supported_local_open_paths(event->mimeData());
+  const auto font_paths = font_or_zip_local_paths(event->mimeData());
+  if (paths.isEmpty() && font_paths.isEmpty()) {
+    event->ignore();
+    show_status_error(tr("Drop a supported image, Photoshop document, or font"));
+    return false;
+  }
+
+  if ((event->possibleActions() & Qt::CopyAction) != 0) {
+    event->setDropAction(Qt::CopyAction);
+    event->accept();
+  } else {
+    event->acceptProposedAction();
+  }
+
+  // Return from the native drop before opening dialogs or processing files.
+  // Windows Explorer waits for its OLE drop call to return, including any nested
+  // RAW/PDF/import dialog loop entered here. Own the paths, never the event or
+  // its source-owned mime data, and cancel delivery if this window is destroyed.
+  QTimer::singleShot(0, this, [this, paths, font_paths] {
+    if (shutting_down_ || !isVisible()) {
+      return;
+    }
+    if (preview_dialog_edit_locked()) {
+      show_preview_dialog_edit_lock_message();
+      return;
+    }
+    if (!font_paths.isEmpty()) {
+      show_user_font_drop_result(user_fonts::add_user_fonts(font_paths));
+    }
+    for (const auto& path : paths) {
+      open_document_path(path);
+    }
+  });
+  return true;
+}
+
+void MainWindow::handle_web_file_drop(const QString& path) {
+  // One MEMFS path per dropped file, delivered by the wasm page-side glue
+  // (install_web_drop_target); mirrors open_dropped_files' guards.
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+  if (user_fonts::is_user_font_path(path) || user_fonts::is_zip_path(path)) {
+    show_user_font_drop_result(user_fonts::add_user_fonts({path}));
+    return;
+  }
+  if (!is_supported_open_path(path)) {
+    show_status_error(tr("Drop a supported image, Photoshop document, or font"));
+    return;
+  }
+  open_document_path(path);
+}
+
+void MainWindow::show_user_font_drop_result(const user_fonts::AddFontsResult& result) {
+  // One status line: failures are the actionable outcome, so they win over a
+  // partial success (the new families still show up in the font picker).
+  if (!result.invalid_names.isEmpty()) {
+    show_status_error(tr("Not a valid font file: %1").arg(result.invalid_names.join(QStringLiteral(", "))));
+    return;
+  }
+  if (!result.zips_without_fonts.isEmpty()) {
+    show_status_error(tr("No fonts found in %1").arg(result.zips_without_fonts.join(QStringLiteral(", "))));
+    return;
+  }
+  if (!result.added_families.isEmpty()) {
+    statusBar()->showMessage(tr("Added fonts: %1").arg(result.added_families.join(QStringLiteral(", "))));
+    return;
+  }
+  if (result.duplicate_count > 0) {
+    statusBar()->showMessage(tr("Fonts already added"));
+  }
+}
+
+void MainWindow::open_command_line_files(const QStringList& paths) {
+  for (const auto& path : paths) {
+    if (path.isEmpty()) {
+      continue;
+    }
+    open_document_path(QFileInfo(path).absoluteFilePath());
+  }
+}
+
+void MainWindow::run_cli_export(const QString& output_path, const QString& append_text) {
+  // Deferred like start_cli_stress_test: the export runs once the event loop is up, so the
+  // opened document's canvas/session state has fully settled before any edit session starts.
+  QTimer::singleShot(0, this, [this, output_path, append_text] {
+    if (!has_active_document()) {
+      fprintf(stderr, "Export failed: no document opened\n");
+      exit_cli_application(2);
+      return;
+    }
+    if (!append_text.isEmpty()) {
+      const int mutated = cli_append_text_to_text_layers(append_text);
+      fprintf(stderr, "Appended text to %d text layer(s)\n", mutated);
+    }
+    const bool saved = save_document_to_path(output_path, std::nullopt, /*flatten_confirmed=*/true);
+    if (!saved) {
+      fprintf(stderr, "Export failed: could not save %s\n", output_path.toUtf8().constData());
+    }
+    // No document may prompt during shutdown.
+    for (auto& export_session : sessions_) {
+      if (export_session != nullptr) {
+        set_session_saved(*export_session);
+      }
+    }
+    exit_cli_application(saved ? 0 : 3);
+  });
+}
+
+void MainWindow::activate_for_second_instance(const QStringList& paths) {
+  // Restore from a minimized/hidden state and pull the existing window in front so the user sees the
+  // file they just double-clicked open in this instance rather than a new process.
+  if (isMinimized()) {
+    setWindowState(windowState() & ~Qt::WindowMinimized);
+  }
+  if (!isVisible()) {
+    show();
+  }
+  raise();
+  activateWindow();
+  open_command_line_files(paths);
+}
+
+bool MainWindow::save_debug_screenshot(const QString& file_path, const QString& widget_name,
+                                       const QRect& region) {
+  // Window captures include the optional display renderer; exports deliberately
+  // do not. Wait for its newest generation, with no user-input reentrancy.
+  QPointer<CanvasWidget> preview_canvas(canvas_);
+  if (preview_canvas && preview_canvas->vector_preview_enabled()) {
+    preview_canvas->update();
+    QElapsedTimer deadline;
+    deadline.start();
+    while (preview_canvas && !preview_canvas->render_settled()) {
+      if (deadline.elapsed() >= 60000) {
+        return false;
+      }
+      QEventLoop pause;
+      QTimer::singleShot(8, &pause, &QEventLoop::quit);
+      pause.exec(QEventLoop::ExcludeUserInputEvents);
+    }
+  }
+  QWidget* target = this;
+  if (!widget_name.isEmpty()) {
+    target = findChild<QWidget*>(widget_name);
+    if (target == nullptr) {
+      return false;
+    }
+  }
+  const auto grab_rect = region.isValid() ? region : QRect(QPoint(0, 0), QSize(-1, -1));
+  return target->grab(grab_rect).save(file_path);
+}
+
+// Affinity "Image" layers (placed image files, Affinity's smart-object analog)
+// import as embedded smart objects carrying their full-resolution originals.
+// Offer converting them to plain pixel layers instead: the remembered
+// preference decides ("smart"/"pixel"), "ask" (the default) raises a
+// one-question dialog. Unattended runs never get here (callers gate on
+// unattended_automation() and keep the smart-object default.
+void MainWindow::maybe_convert_af_image_layers(Document& target) {
+  const auto placed = count_smart_object_layers(std::as_const(target).layers());
+  if (placed == 0) {
+    return;
+  }
+  auto settings = app_settings();
+  const auto policy =
+      settings.value(QStringLiteral("imports/afImageLayers"), QStringLiteral("ask")).toString();
+  if (policy == QStringLiteral("smart")) {
+    return;
+  }
+  bool convert = policy == QStringLiteral("pixel");
+  if (!convert) {
+    QMessageBox box(this);
+    box.setObjectName(QStringLiteral("afImageLayersMessageBox"));
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle(tr("Affinity Image Layers"));
+    box.setText(tr("This document places %n image file(s) as Affinity \"Image\" layers.", nullptr,
+                   static_cast<int>(placed)));
+    box.setInformativeText(
+        tr("Keep them as embedded smart objects? Each keeps its full-resolution original file for "
+           "re-editing and PSD export. Converting to regular pixel layers keeps only the pixels at "
+           "their placed size, which uses less memory but discards the originals."));
+    auto* keep_button = box.addButton(tr("Keep as Smart Objects"), QMessageBox::AcceptRole);
+    auto* convert_button = box.addButton(tr("Convert to Pixel Layers"), QMessageBox::DestructiveRole);
+    box.setDefaultButton(keep_button);
+    auto* remember = new QCheckBox(tr("Remember this choice"), &box);
+    box.setCheckBox(remember);
+    exec_dialog(box);
+    convert = box.clickedButton() == convert_button;
+    if (remember->isChecked()) {
+      settings.setValue(QStringLiteral("imports/afImageLayers"),
+                        convert ? QStringLiteral("pixel") : QStringLiteral("smart"));
+    }
+    if (!convert) {
+      return;
+    }
+  }
+  std::vector<std::string> source_uuids;
+  strip_smart_object_layers(target, target.layers(), source_uuids);
+  // The import authored one embedded source per placed image; with every
+  // wrapper gone the file bytes have no owner, so drop them (unlike Rasterize,
+  // which keeps orphans for Photoshop parity, nothing was ever saved here).
+  for (const auto& uuid : source_uuids) {
+    if (!uuid.empty()) {
+      (void)target.metadata().smart_objects.remove(uuid);
+    }
+  }
+  // remove() keeps the emptied link block; drop authored blocks with nothing
+  // left so the document reports no smart objects at all (preserved opaque or
+  // original-payload blocks from other sources stay).
+  auto& blocks = target.metadata().smart_objects.blocks;
+  blocks.erase(std::remove_if(blocks.begin(), blocks.end(),
+                              [](const SmartObjectLinkBlock& block) {
+                                return block.sources.empty() && !block.opaque &&
+                                       block.original_payload == nullptr;
+                              }),
+               blocks.end());
+}
+
+void MainWindow::open_document_path(QString path) {
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+#ifdef Q_OS_WASM
+  const bool browser_transfer = wasm_files::is_temporary_transfer_path(path);
+  const auto release_browser_transfer = qScopeGuard([&path, browser_transfer] {
+    if (browser_transfer) {
+      wasm_files::discard_temporary_transfer(path);
+    }
+  });
+  wasm_files::publish_open_probe(QStringLiteral("opening"), path);
+#else
+  constexpr bool browser_transfer = false;
+#endif
+  try {
+    const bool allow_raw_dialog = !script_engine_host_ || !script_engine_host_->run_active() ||
+                                  script_engine_host_->manual_edit_pause();
+    auto loaded = load_document_interactive(this, path, !unattended_automation(), allow_raw_dialog);
+    if (!loaded.has_value()) {
+#ifdef Q_OS_WASM
+      wasm_files::publish_open_probe(QStringLiteral("cancelled"), path);
+#endif
+      return;
+    }
+    render_pending_svg_text_layers(loaded->document);
+    render_pending_af_text_layers(loaded->document);
+    render_pending_pdf_text_layers(loaded->document);
+    render_pending_pdf_image_layers(loaded->document);
+    if (!unattended_automation() && is_affinity_document_extension(loaded->extension)) {
+      maybe_convert_af_image_layers(loaded->document);
+    }
+
+    // A browser pick/drop is an import, not a writable host path. The loaded
+    // document owns all decoded data, so release its MEMFS source after this
+    // function and keep the session pathless. Save will correctly use Save As
+    // and download a new browser file; Reopen/Reveal will not point at a dead
+    // sandbox path.
+    const auto session_path = browser_transfer ? QString() : path;
+    const auto loaded_file_name = loaded->file_name;
+    add_document_session(std::move(loaded->document), loaded_file_name, session_path, tr("Open"));
+    if (!unattended_automation() && is_photoshop_document_extension(loaded->extension) &&
+        app_settings().value(QStringLiteral("imports/showPsdWarningsAndInfo"), false).toBool()) {
+      show_compatibility_report(this, document(), loaded_file_name);
+    }
+    canvas_->fit_to_view();
+    if (!unattended_automation()) {
+      // Unattended runs must not block on the adoption offer.
+      maybe_offer_indexed_palette_adoption();
+    }
+    update_undo_redo_actions();
+    if (!browser_transfer) {
+      add_recent_file(path);
+      if (!unattended_automation()) remember_open_directory_for_path(path);
+    }
+    if (loaded->import_notices.isEmpty()) {
+      statusBar()->showMessage(tr("Opened %1").arg(browser_transfer ? loaded_file_name : path));
+    } else {
+      // Import notes ride the status bar by default; the consolidated popup is
+      // opt-in via the same preference that gates the PSD compatibility report
+      // (Seth: do not annoy people with info popups).
+      auto status_notes = loaded->import_notices.front();
+      if (loaded->import_notices.size() > 1) {
+        status_notes +=
+            tr(" (+%n more import note(s))", nullptr, static_cast<int>(loaded->import_notices.size()) - 1);
+      }
+      statusBar()->showMessage(tr("Opened %1. %2").arg(loaded_file_name, status_notes));
+      if (!unattended_automation() &&
+          app_settings().value(QStringLiteral("imports/showPsdWarningsAndInfo"), false).toBool()) {
+        QStringList bullets;
+        bullets.reserve(loaded->import_notices.size());
+        for (const auto& notice : loaded->import_notices) {
+          bullets.push_back(QStringLiteral("• ") + notice);
+        }
+        show_information_message(this, tr("Import Notes"),
+                                 tr("%1 opened with notes:\n\n%2")
+                                      .arg(loaded_file_name, bullets.join(QLatin1Char('\n'))),
+                                 QStringLiteral("importNoticesMessageBox"));
+      }
+    }
+#ifdef Q_OS_WASM
+    wasm_files::publish_open_probe(QStringLiteral("opened"), path);
+#endif
+  } catch (const std::exception& error) {
+#ifdef Q_OS_WASM
+    wasm_files::publish_open_probe(QStringLiteral("failed"), path, translated_file_message(error.what()));
+#endif
+    if (unattended_automation()) {
+      fprintf(stderr, "Open failed: %s (%s)\n", error.what(), path.toUtf8().constData());
+    } else {
+      show_open_failed_message_box(this, translated_file_message(error.what()));
+    }
+  }
+}
+
+void MainWindow::reopen_document_session(DocumentSession& target_session) {
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+  const auto path = target_session.path;
+  if (path.isEmpty()) {
+    return;
+  }
+  // The discard prompt and every post-load refresh act on the ACTIVE session,
+  // so the target must be activated first (raising its float window when it
+  // lives in one).
+  activate_document_session(target_session);
+  if (!QFileInfo::exists(path)) {
+    show_status_error(tr("File is missing"));
+    return;
+  }
+  if (session_is_modified(target_session)) {
+    const auto title = target_session.title.isEmpty() ? tr("Untitled") : target_session.title;
+    const auto answer = show_warning_message(
+        this, tr("Reopen document?"),
+        tr("%1 has unsaved changes. Reopen the file from disk and discard them?").arg(title),
+        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel,
+        QStringLiteral("reopenDocumentMessageBox"));
+    if (answer != QMessageBox::Yes) {
+      return;
+    }
+  }
+  try {
+    const bool allow_raw_dialog = !script_engine_host_ || !script_engine_host_->run_active() ||
+                                  script_engine_host_->manual_edit_pause();
+    auto loaded = load_document_interactive(this, path, !unattended_automation(), allow_raw_dialog);
+    if (!loaded.has_value()) {
+      return;
+    }
+    render_pending_svg_text_layers(loaded->document);
+    render_pending_af_text_layers(loaded->document);
+    render_pending_pdf_text_layers(loaded->document);
+    render_pending_pdf_image_layers(loaded->document);
+    if (!unattended_automation() &&
+        is_affinity_document_extension(QFileInfo(path).suffix().toLower())) {
+      maybe_convert_af_image_layers(loaded->document);
+    }
+
+    // Replace the document in place: tab position, float window, and session
+    // identity survive (smart-object child tabs reference session ids). An open
+    // inline text edit still targets the outgoing document, so settle it first.
+    finish_active_text_editor();
+    layer_thumbnail_cache_.clear();
+    channel_thumbnail_cache_.clear();
+    target_session.document = std::move(loaded->document);
+    initialize_session_history(target_session, tr("Reopen"));
+    target_session.collapsed_layer_groups.clear();
+    collect_initially_collapsed_layer_groups(target_session.document.layers(),
+                                             target_session.collapsed_layer_groups);
+    ++target_session.revision;
+    target_session.saved_revision = target_session.revision;
+    canvas_->set_document(&target_session.document);
+    canvas_->fit_to_view();
+    refresh_layer_list();
+    refresh_layer_controls();
+    refresh_channel_panel();
+    refresh_palette_panel();
+    schedule_palette_compliance_check();
+    maybe_offer_indexed_palette_adoption();
+    update_undo_redo_actions();
+    update_document_action_state();
+    refresh_document_tab_titles();
+    if (loaded->import_notices.isEmpty()) {
+      statusBar()->showMessage(tr("Reopened %1").arg(path));
+    } else {
+      auto status_notes = loaded->import_notices.front();
+      if (loaded->import_notices.size() > 1) {
+        status_notes +=
+            tr(" (+%n more import note(s))", nullptr, static_cast<int>(loaded->import_notices.size()) - 1);
+      }
+      statusBar()->showMessage(tr("Reopened %1. %2").arg(loaded->file_name, status_notes));
+    }
+  } catch (const std::exception& error) {
+    show_open_failed_message_box(this, translated_file_message(error.what()));
+  }
+}
+
+namespace {
+
+// The device-reported scan DPI, when the backend supplied one, overrides the file's own
+// density: drivers routinely write 72 or nothing into scanned JPEGs, which would print
+// a 300 DPI scan at four times its real size. Absurd values (from either source) are
+// clamped so physical sizes stay sane (Image Size for imports, the actual-size
+// placement for photocopies).
+void apply_scanned_document_ppi(Document& document, const ScannerAcquireResult& result) {
+  auto& print_settings = document.print_settings();
+  if (result.horizontal_dpi >= 10 && result.horizontal_dpi <= 4800) {
+    print_settings.horizontal_ppi = result.horizontal_dpi;
+  }
+  if (result.vertical_dpi >= 10 && result.vertical_dpi <= 4800) {
+    print_settings.vertical_ppi = result.vertical_dpi;
+  }
+  if (print_settings.horizontal_ppi < 10 || print_settings.horizontal_ppi > 4800) {
+    print_settings.horizontal_ppi = 300;
+  }
+  if (print_settings.vertical_ppi < 10 || print_settings.vertical_ppi > 4800) {
+    print_settings.vertical_ppi = 300;
+  }
+}
+
+}  // namespace
+
+void MainWindow::import_from_scanner() {
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+  // PATCHY_FAKE_SCANNER_FILE bypasses native acquisition so offscreen tests can exercise
+  // the import/session plumbing (WIA and AppKit scanner dialogs cannot run in CI).
+  const auto fake_path = qEnvironmentVariable("PATCHY_FAKE_SCANNER_FILE");
+  if (!fake_path.isEmpty()) {
+    finish_scanner_import({ScannerAcquireStatus::Acquired, fake_path, {}}, false);
+    return;
+  }
+
+#ifdef Q_OS_WIN
+  if (scanner_import_active_) {
+    return;
+  }
+  scanner_import_active_ = true;
+  const auto reentry_guard = qScopeGuard([this] { scanner_import_active_ = false; });
+  finish_scanner_import(acquire_image_from_scanner(this), true);
+#elif defined(Q_OS_MACOS)
+  if (scanner_import_active_) {
+    return;
+  }
+  scanner_import_active_ = true;
+  const QPointer<MainWindow> window(this);
+  acquire_image_from_scanner_async(this, [window](ScannerAcquireResult result) {
+    if (window == nullptr) {
+      if (result.status == ScannerAcquireStatus::Acquired) {
+        QFile::remove(result.file_path);
+      }
+      return;
+    }
+    window->scanner_import_active_ = false;
+    window->finish_scanner_import(std::move(result), true);
+  });
+#endif
+}
+
+void MainWindow::finish_scanner_import(ScannerAcquireResult result, bool delete_after) {
+  const auto remove_temporary_scan = qScopeGuard([&result, delete_after] {
+    if (delete_after && !result.file_path.isEmpty()) {
+      QFile::remove(result.file_path);
+    }
+  });
+  switch (result.status) {
+    case ScannerAcquireStatus::Cancelled:
+      return;
+    case ScannerAcquireStatus::NoDevice:
+#ifdef Q_OS_WIN
+      show_information_message(
+          this, tr("Import from Scanner"),
+          tr("No scanner or camera was found. Connect a WIA-compatible device and try again."),
+          QStringLiteral("scannerNoDeviceMessageBox"));
+#else
+      show_information_message(
+          this, tr("Import from Scanner"),
+          tr("No scanner was found. Connect a scanner recognized by macOS and try again."),
+          QStringLiteral("scannerNoDeviceMessageBox"));
+#endif
+      return;
+    case ScannerAcquireStatus::Failed:
+      show_critical_message(this, tr("Import from Scanner"), result.error,
+                            QStringLiteral("scannerFailedMessageBox"));
+      return;
+    case ScannerAcquireStatus::Acquired:
+      break;
+  }
+
+  const auto& acquired_path = result.file_path;
+  try {
+    // Load by content: some scanner drivers save JPEG bytes regardless of the requested
+    // format, and QImageReader's fallback probes plugins by content when the extension
+    // path fails.
+    auto loaded = load_document_from_path(acquired_path);
+    apply_scanned_document_ppi(loaded.document, result);
+    // Untitled + modified: the scan exists nowhere else, so Save must prompt Save As and
+    // closing must warn about unsaved changes.
+    add_document_session(std::move(loaded.document), tr("Scanned Image"), QString(),
+                         tr("Import from scanner"));
+    canvas_->fit_to_view();
+    refresh_layer_list();
+    refresh_layer_controls();
+    update_undo_redo_actions();
+    mark_session_modified(session());
+    statusBar()->showMessage(tr("Imported image from scanner"));
+  } catch (const std::exception& error) {
+    show_critical_message(this, tr("Import failed"), translated_file_message(error.what()),
+                          QStringLiteral("openFailedMessageBox"));
+  }
+}
+
+void MainWindow::photocopy_from_scanner() {
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+  // Same PATCHY_FAKE_SCANNER_FILE bypass as import_from_scanner, so offscreen tests can
+  // drive the photocopy dialog without hardware.
+  const auto fake_path = qEnvironmentVariable("PATCHY_FAKE_SCANNER_FILE");
+  if (!fake_path.isEmpty()) {
+    finish_photocopy_scan({ScannerAcquireStatus::Acquired, fake_path, {}}, false);
+    return;
+  }
+
+#ifdef Q_OS_WIN
+  if (scanner_import_active_) {
+    return;
+  }
+  scanner_import_active_ = true;
+  const auto reentry_guard = qScopeGuard([this] { scanner_import_active_ = false; });
+  finish_photocopy_scan(acquire_image_from_scanner(this), true);
+#elif defined(Q_OS_MACOS)
+  if (scanner_import_active_) {
+    return;
+  }
+  scanner_import_active_ = true;
+  const QPointer<MainWindow> window(this);
+  acquire_image_from_scanner_async(this, [window](ScannerAcquireResult result) {
+    if (window == nullptr) {
+      if (result.status == ScannerAcquireStatus::Acquired) {
+        QFile::remove(result.file_path);
+      }
+      return;
+    }
+    window->scanner_import_active_ = false;
+    window->finish_photocopy_scan(std::move(result), true);
+  });
+#endif
+}
+
+void MainWindow::finish_photocopy_scan(ScannerAcquireResult result, bool delete_after) {
+  const auto remove_temporary_scan = qScopeGuard([&result, delete_after] {
+    if (delete_after && !result.file_path.isEmpty()) {
+      QFile::remove(result.file_path);
+    }
+  });
+  switch (result.status) {
+    case ScannerAcquireStatus::Cancelled:
+      return;
+    case ScannerAcquireStatus::NoDevice:
+#ifdef Q_OS_WIN
+      show_information_message(
+          this, tr("Photocopy"),
+          tr("No scanner or camera was found. Connect a WIA-compatible device and try again."),
+          QStringLiteral("scannerNoDeviceMessageBox"));
+#else
+      show_information_message(
+          this, tr("Photocopy"),
+          tr("No scanner was found. Connect a scanner recognized by macOS and try again."),
+          QStringLiteral("scannerNoDeviceMessageBox"));
+#endif
+      return;
+    case ScannerAcquireStatus::Failed:
+      show_critical_message(this, tr("Photocopy"), result.error,
+                            QStringLiteral("scannerFailedMessageBox"));
+      return;
+    case ScannerAcquireStatus::Acquired:
+      break;
+  }
+
+  // The scan is loaded only to print it, never added as a document session: a
+  // photocopy leaves nothing behind, like the machine it is named after. The try
+  // covers only the load; the dialog handles its own printing errors, and wrapping
+  // it would swallow test-harness unwinds into a modal error box.
+  std::optional<Document> scanned;
+  try {
+    auto loaded = load_document_from_path(result.file_path);
+    apply_scanned_document_ppi(loaded.document, result);
+    scanned.emplace(std::move(loaded.document));
+  } catch (const std::exception& error) {
+    show_critical_message(this, tr("Photocopy"), translated_file_message(error.what()),
+                          QStringLiteral("openFailedMessageBox"));
+    return;
+  }
+  if (run_photocopy_dialog(this, *scanned)) {
+    statusBar()->showMessage(tr("Photocopy sent to printer"));
+  }
+}
+
+void MainWindow::import_and_divide_from_scanner() {
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+  // Same PATCHY_FAKE_SCANNER_FILE bypass as import_from_scanner, so offscreen tests can
+  // drive the divide dialog without hardware.
+  const auto fake_path = qEnvironmentVariable("PATCHY_FAKE_SCANNER_FILE");
+  if (!fake_path.isEmpty()) {
+    while (finish_divide_scanner_import({ScannerAcquireStatus::Acquired, fake_path, {}}, false)) {
+    }
+    return;
+  }
+
+#ifdef Q_OS_WIN
+  if (scanner_import_active_) {
+    return;
+  }
+  scanner_import_active_ = true;
+  const auto reentry_guard = qScopeGuard([this] { scanner_import_active_ = false; });
+  // "Scan another batch?" loops straight back into acquisition, saving the
+  // menu round-trip when a stack of photos is being fed through.
+  while (finish_divide_scanner_import(acquire_image_from_scanner(this), true)) {
+  }
+#elif defined(Q_OS_MACOS)
+  if (scanner_import_active_) {
+    return;
+  }
+  scanner_import_active_ = true;
+  const QPointer<MainWindow> window(this);
+  acquire_image_from_scanner_async(this, [window](ScannerAcquireResult result) {
+    if (window == nullptr) {
+      if (result.status == ScannerAcquireStatus::Acquired) {
+        QFile::remove(result.file_path);
+      }
+      return;
+    }
+    window->scanner_import_active_ = false;
+    // "Scan another batch?" re-enters acquisition (the async flow cannot loop
+    // in place; scanner_import_active_ is already cleared above).
+    if (window->finish_divide_scanner_import(std::move(result), true)) {
+      window->import_and_divide_from_scanner();
+    }
+  });
+#endif
+}
+
+bool MainWindow::finish_divide_scanner_import(ScannerAcquireResult result, bool delete_after) {
+  const auto remove_temporary_scan = qScopeGuard([&result, delete_after] {
+    if (delete_after && !result.file_path.isEmpty()) {
+      QFile::remove(result.file_path);
+    }
+  });
+  switch (result.status) {
+    case ScannerAcquireStatus::Cancelled:
+      return false;
+    case ScannerAcquireStatus::NoDevice:
+#ifdef Q_OS_WIN
+      show_information_message(
+          this, tr("Divide Scanned Photos"),
+          tr("No scanner or camera was found. Connect a WIA-compatible device and try again."),
+          QStringLiteral("scannerNoDeviceMessageBox"));
+#else
+      show_information_message(
+          this, tr("Divide Scanned Photos"),
+          tr("No scanner was found. Connect a scanner recognized by macOS and try again."),
+          QStringLiteral("scannerNoDeviceMessageBox"));
+#endif
+      return false;
+    case ScannerAcquireStatus::Failed:
+      show_critical_message(this, tr("Divide Scanned Photos"), result.error,
+                            QStringLiteral("scannerFailedMessageBox"));
+      return false;
+    case ScannerAcquireStatus::Acquired:
+      break;
+  }
+
+  // Like the photocopy, the scan itself never becomes a session; only the
+  // divided photos do. The try covers only the load.
+  std::optional<Document> scanned;
+  try {
+    auto loaded = load_document_from_path(result.file_path);
+    apply_scanned_document_ppi(loaded.document, result);
+    scanned.emplace(std::move(loaded.document));
+  } catch (const std::exception& error) {
+    show_critical_message(this, tr("Divide Scanned Photos"), translated_file_message(error.what()),
+                          QStringLiteral("openFailedMessageBox"));
+    return false;
+  }
+  const auto image = qimage_from_document_rect(
+      *scanned, QRect(0, 0, scanned->width(), scanned->height()), /*preserve_alpha*/ true);
+  auto pixels = std::make_shared<const PixelBuffer>(pixels_from_image_rgba(image));
+  if (!run_divide_photos_flow(std::move(pixels), scanned->print_settings())) {
+    return false;
+  }
+  // Only after a completed batch: someone dividing a whole shoebox gets the
+  // next scan one keypress away instead of a menu round-trip.
+  const auto answer = show_warning_message(
+      this, tr("Divide Scanned Photos"), tr("Scan another batch of photos?"),
+      QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes,
+      QStringLiteral("dividePhotosScanAgainMessageBox"));
+  return answer == QMessageBox::Yes;
+}
+
+void MainWindow::divide_current_document_photos() {
+  if (!has_active_document()) {
+    show_status_error(tr("No document"));
+    return;
+  }
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+  finish_active_text_editor();
+  // The flattened composite, alpha preserved: detection composites alpha over
+  // white itself, and extraction keeps transparency. The source document is
+  // never modified (no undo entry).
+  const auto image = qimage_from_document_rect(
+      document(), QRect(0, 0, document().width(), document().height()), /*preserve_alpha*/ true);
+  auto pixels = std::make_shared<const PixelBuffer>(pixels_from_image_rgba(image));
+  run_divide_photos_flow(std::move(pixels), document().print_settings());
+}
+
+bool MainWindow::run_divide_photos_flow(std::shared_ptr<const PixelBuffer> source,
+                                        DocumentPrintSettings print_settings) {
+  if (source == nullptr || source->empty()) {
+    return false;
+  }
+  DividePhotosSettings dialog_settings;
+  {
+    auto settings = app_settings();
+    dialog_settings.sensitivity =
+        std::clamp(settings.value(QStringLiteral("dividePhotos/sensitivity"), 50).toInt(), 0, 100);
+    const bool straighten = settings.value(QStringLiteral("dividePhotos/straighten"), true).toBool();
+    const bool perspective =
+        settings.value(QStringLiteral("dividePhotos/fixPerspective"), false).toBool();
+    dialog_settings.mode = perspective ? PhotoExtractMode::Perspective
+                           : straighten ? PhotoExtractMode::Straighten
+                                        : PhotoExtractMode::Cut;
+    dialog_settings.up_direction = static_cast<PhotoUpDirection>(
+        std::clamp(settings.value(QStringLiteral("dividePhotos/upDirection"), 0).toInt(), 0, 3));
+    dialog_settings.output = static_cast<DividePhotosOutput>(
+        std::clamp(settings.value(QStringLiteral("dividePhotos/output"), 0).toInt(), 0, 2));
+    dialog_settings.folder = settings.value(QStringLiteral("dividePhotos/folder")).toString();
+    dialog_settings.prefix =
+        settings.value(QStringLiteral("dividePhotos/prefix"), QStringLiteral("photo_")).toString();
+    dialog_settings.format =
+        settings.value(QStringLiteral("dividePhotos/format"), QStringLiteral("png")).toString();
+    dialog_settings.existing_files = static_cast<DividePhotosExistingFiles>(
+        std::clamp(settings.value(QStringLiteral("dividePhotos/existingFiles"), 0).toInt(), 0, 1));
+  }
+  if (dialog_settings.folder.isEmpty()) {
+    dialog_settings.folder = last_save_directory();
+  }
+  const auto result = request_divide_photos(this, source, print_settings.horizontal_ppi,
+                                            dialog_settings, divide_photos_format_choices());
+  if (!result.has_value()) {
+    return false;
+  }
+  const DividePhotosSettings& chosen = result->settings;
+  {
+    auto settings = app_settings();
+    settings.setValue(QStringLiteral("dividePhotos/sensitivity"), chosen.sensitivity);
+    settings.setValue(QStringLiteral("dividePhotos/straighten"),
+                      chosen.mode != PhotoExtractMode::Cut);
+    settings.setValue(QStringLiteral("dividePhotos/fixPerspective"),
+                      chosen.mode == PhotoExtractMode::Perspective);
+    settings.setValue(QStringLiteral("dividePhotos/upDirection"),
+                      static_cast<int>(chosen.up_direction));
+    settings.setValue(QStringLiteral("dividePhotos/output"), static_cast<int>(chosen.output));
+    settings.setValue(QStringLiteral("dividePhotos/folder"), chosen.folder);
+    settings.setValue(QStringLiteral("dividePhotos/prefix"), chosen.prefix);
+    settings.setValue(QStringLiteral("dividePhotos/format"), chosen.format);
+    settings.setValue(QStringLiteral("dividePhotos/existingFiles"),
+                      static_cast<int>(chosen.existing_files));
+  }
+  if (result->regions.empty()) {
+    show_status_error(tr("No photos were found"));
+    return false;
+  }
+
+  QProgressDialog progress(tr("Dividing photos..."), tr("Cancel"), 0, 100, this);
+  progress.setObjectName(QStringLiteral("dividePhotosProgressDialog"));
+  progress.setWindowModality(Qt::WindowModal);
+  progress.setMinimumDuration(kFilterProgressMinimumDurationMs);
+  remember_dialog_position(progress);
+  progress.setValue(0);
+  std::vector<PixelBuffer> photos;
+  // Captured by value: the compute may run on a worker under wasm and must not
+  // read UI state (main_window_shared.hpp's rule).
+  const auto regions = result->regions;
+  const auto mode = chosen.mode;
+  const int rotate_turns = up_direction_cw_turns(chosen.up_direction);
+  try {
+    run_filter_compute_with_progress(
+        progress, [](const QString& detail) { return tr("Dividing photos...\n%1").arg(detail); },
+        {}, [&photos, regions, mode, rotate_turns, source](FilterProgress& filter_progress) {
+          for (std::size_t i = 0; i < regions.size(); ++i) {
+            if (filter_progress.update &&
+                !filter_progress.update(static_cast<int>(i), static_cast<int>(regions.size()),
+                                        FilterProgressStage::Filtering)) {
+              throw FilterCancelled();
+            }
+            auto photo = extract_photo_region(*source, regions[i], mode);
+            if (!photo.empty() && rotate_turns != 0) {
+              photo = rotated_quarter_turns(photo, rotate_turns);
+            }
+            if (!photo.empty()) {
+              photos.push_back(std::move(photo));
+            }
+          }
+        });
+    progress.setValue(100);
+  } catch (const FilterCancelled&) {
+    statusBar()->showMessage(tr("Cancelled Divide Scanned Photos"));
+    return false;
+  }
+  if (photos.empty()) {
+    show_status_error(tr("No photos were found"));
+    return false;
+  }
+
+  if (chosen.output != DividePhotosOutput::OpenDocuments) {
+    const auto saved = save_divided_photos_to_folder(photos, print_settings, chosen.folder,
+                                                     chosen.prefix, chosen.format,
+                                                     chosen.existing_files);
+    if (!saved.has_value()) {
+      return false;
+    }
+    const int count = static_cast<int>(saved->size());
+    const QString native_folder = QDir::toNativeSeparators(chosen.folder);
+    if (chosen.output == DividePhotosOutput::SaveAndOpen) {
+      for (std::size_t i = 0; i < photos.size(); ++i) {
+        Document photo_document(photos[i].width(), photos[i].height(), photos[i].format());
+        photo_document.print_settings() = print_settings;
+        photo_document.add_pixel_layer("Background", std::move(photos[i]));
+        const QString path = saved->at(static_cast<qsizetype>(i));
+        // Deliberately not marked modified: the session mirrors the file just
+        // written, so closing never prompts to save and the tab carries the
+        // real file name.
+        add_document_session(std::move(photo_document), QFileInfo(path).fileName(), path,
+                             tr("Divide scanned photos"));
+        canvas_->fit_to_view();
+      }
+      refresh_layer_list();
+      refresh_layer_controls();
+      update_undo_redo_actions();
+      statusBar()->showMessage(
+          tr("Saved %n photo(s) to %1 and opened them", nullptr, count).arg(native_folder));
+    } else {
+      // A status-bar line alone is easy to miss after a batch export; confirm
+      // visibly (there is no toast surface).
+      statusBar()->showMessage(tr("Saved %n photo(s) to %1", nullptr, count).arg(native_folder));
+      show_information_message(this, tr("Divide Scanned Photos"),
+                               tr("Saved %n photo(s) to %1", nullptr, count).arg(native_folder),
+                               QStringLiteral("dividePhotosSavedMessageBox"));
+    }
+    return true;
+  }
+
+  int photo_number = 1;
+  for (auto& photo : photos) {
+    Document photo_document(photo.width(), photo.height(), photo.format());
+    photo_document.print_settings() = print_settings;
+    photo_document.add_pixel_layer("Background", std::move(photo));
+    // Untitled + modified, like scanner import: each photo exists nowhere else yet.
+    add_document_session(std::move(photo_document), tr("Photo %1").arg(photo_number), QString(),
+                         tr("Divide scanned photos"));
+    canvas_->fit_to_view();
+    mark_session_modified(session());
+    ++photo_number;
+  }
+  refresh_layer_list();
+  refresh_layer_controls();
+  update_undo_redo_actions();
+  statusBar()->showMessage(tr("Divided into %n photo(s)", nullptr, static_cast<int>(photos.size())));
+  return true;
+}
+
+std::optional<QStringList> MainWindow::save_divided_photos_to_folder(
+    const std::vector<PixelBuffer>& photos, const DocumentPrintSettings& print_settings,
+    const QString& folder, const QString& prefix, const QString& extension,
+    DividePhotosExistingFiles existing_files) {
+  if (photos.empty() || folder.trimmed().isEmpty()) {
+    return std::nullopt;
+  }
+  try {
+    // The dialog already created the folder; direct callers (tests) may not have.
+    QDir().mkpath(folder);
+    const QDir directory(folder);
+    QStringList targets;
+    targets.reserve(static_cast<qsizetype>(photos.size()));
+    if (existing_files == DividePhotosExistingFiles::AddNumbering) {
+      // Never overwrite: each file takes the next free index, so a batch lands
+      // after whatever the folder already holds (001-003 there -> 004, 005...).
+      int index = 1;
+      for (std::size_t i = 0; i < photos.size(); ++i) {
+        while (
+            QFileInfo::exists(directory.filePath(divide_photo_file_name(prefix, index, extension)))) {
+          ++index;
+        }
+        targets.push_back(directory.filePath(divide_photo_file_name(prefix, index, extension)));
+        ++index;
+      }
+    } else {
+      QString first_conflict;
+      for (std::size_t i = 0; i < photos.size(); ++i) {
+        const auto name = divide_photo_file_name(prefix, static_cast<int>(i) + 1, extension);
+        const auto target = directory.filePath(name);
+        if (first_conflict.isEmpty() && QFileInfo::exists(target)) {
+          first_conflict = name;
+        }
+        targets.push_back(target);
+      }
+      // One confirmation for the whole batch, before anything is written; the
+      // first colliding name stands in for the rest.
+      if (!first_conflict.isEmpty()) {
+        const auto answer = show_warning_message(
+            this, tr("Divide Scanned Photos"),
+            tr("%1 already exists. Overwrite existing photos?").arg(first_conflict),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No,
+            QStringLiteral("dividePhotosOverwriteMessageBox"));
+        if (answer != QMessageBox::Yes) {
+          return std::nullopt;
+        }
+      }
+    }
+
+    // Per-format remembered defaults, applied silently; the export scale is
+    // pinned to 1x so the shared saveOptions/exportScale can never rescale a
+    // photo batch.
+    auto image_options = load_image_save_option_defaults();
+    image_options.export_scale = 1;
+
+    QProgressDialog progress(tr("Saving photos..."), tr("Cancel"), 0, 100, this);
+    progress.setObjectName(QStringLiteral("dividePhotosSaveProgressDialog"));
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(kFilterProgressMinimumDurationMs);
+    remember_dialog_position(progress);
+    progress.setValue(0);
+    // Captured by value where UI state would otherwise be read (the wasm
+    // worker rule); the save modes are desktop-only but the rule holds.
+    const std::string background_name = tr("Background").toStdString();
+    run_filter_compute_with_progress(
+        progress, [](const QString& detail) { return tr("Saving photos...\n%1").arg(detail); }, {},
+        [&photos, &targets, &extension, &image_options, &print_settings,
+         &background_name](FilterProgress& filter_progress) {
+          for (std::size_t i = 0; i < photos.size(); ++i) {
+            if (filter_progress.update &&
+                !filter_progress.update(static_cast<int>(i), static_cast<int>(photos.size()),
+                                        FilterProgressStage::Filtering)) {
+              throw FilterCancelled();
+            }
+            Document photo_document(photos[i].width(), photos[i].height(), photos[i].format());
+            photo_document.print_settings() = print_settings;
+            photo_document.add_pixel_layer(background_name, photos[i]);
+            write_flat_image_file(photo_document, targets.at(static_cast<qsizetype>(i)), extension,
+                                  image_options);
+          }
+        });
+    progress.setValue(100);
+    remember_save_directory_for_path(targets.front());
+    return targets;
+  } catch (const FilterCancelled&) {
+    statusBar()->showMessage(tr("Cancelled Divide Scanned Photos"));
+    return std::nullopt;
+  } catch (const std::exception& error) {
+    show_critical_message(this, tr("Save failed"), translated_file_message(error.what()),
+                          QStringLiteral("exportFailedMessageBox"));
+    return std::nullopt;
+  }
+}
+
+void MainWindow::import_sprite_sheet() {
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+  const auto path = get_open_file_name(this, tr("Sprite Sheet to Layers"), last_open_directory(), open_file_filter(),
+                                       nullptr, QStringLiteral("spriteSheetImportFileDialog"),
+                                       FilterNameDetails::Hidden);
+  if (path.isEmpty()) {
+    return;
+  }
+  try {
+    QImageReader reader(path);
+    reader.setAutoTransform(true);
+    const auto sheet = reader.read().convertToFormat(QImage::Format_RGBA8888);
+    if (sheet.isNull()) {
+      throw std::runtime_error(reader.errorString().toStdString());
+    }
+    const auto options = prompt_sprite_sheet_import_options(this, sheet.size());
+    if (!options.has_value()) {
+      return;
+    }
+    auto sliced = slice_sprite_sheet(sheet, *options, tr("Frame %1"));
+    if (!sliced.has_value()) {
+      show_information_message(this, tr("Sprite Sheet to Layers"),
+                               tr("No non-empty cells were found with these settings."),
+                               QStringLiteral("spriteSheetEmptyMessageBox"));
+      return;
+    }
+    const auto frame_count = static_cast<int>(sliced->layers().size());
+    if (const auto default_layer_id = default_non_group_layer_id(sliced->layers()); default_layer_id.has_value()) {
+      sliced->set_active_layer(*default_layer_id);
+    }
+    add_document_session(std::move(*sliced), tr("Sprite Frames"), QString(),
+                         tr("Import sprite sheet"));
+    canvas_->fit_to_view();
+    refresh_layer_list();
+    refresh_layer_controls();
+    update_undo_redo_actions();
+    mark_session_modified(session());
+    statusBar()->showMessage(tr("Imported %1 frames from %2").arg(frame_count).arg(path));
+  } catch (const std::exception& error) {
+    show_critical_message(this, tr("Import failed"), translated_file_message(error.what()),
+                          QStringLiteral("openFailedMessageBox"));
+  }
+}
+
+void MainWindow::export_sprite_sheet() {
+  if (!has_active_document()) {
+    show_status_error(tr("No document"));
+    return;
+  }
+  finish_active_text_editor();
+  // One frame per visible top-level layer, bottom to top (hidden layers contribute
+  // nothing, matching merge semantics); groups render as their flattened subtree.
+  int frame_count = 0;
+  for (const auto& layer : std::as_const(document()).layers()) {
+    if (layer.visible()) {
+      ++frame_count;
+    }
+  }
+  if (frame_count == 0) {
+    show_information_message(this, tr("Export Sprite Sheet"), tr("There are no visible layers to export."),
+                             QStringLiteral("spriteSheetNoLayersMessageBox"));
+    return;
+  }
+  const auto options = prompt_sprite_sheet_export_options(this, frame_count);
+  if (!options.has_value()) {
+    return;
+  }
+  const auto sheet = compose_sprite_sheet(document(), *options);
+  if (sheet.isNull()) {
+    return;
+  }
+
+  QString selected_filter;
+  const auto base_name = QFileInfo(session().title.isEmpty() ? tr("Untitled") : session().title).completeBaseName();
+  auto path = get_save_file_name(this, tr("Export Sprite Sheet"),
+                                 file_dialog_initial_path(QString(), base_name + QStringLiteral("-sheet.png")),
+                                 export_image_filter(), &selected_filter,
+                                 QStringLiteral("spriteSheetExportFileDialog"));
+  if (path.isEmpty()) {
+    return;
+  }
+  path = path_with_default_extension(path, selected_filter);
+  try {
+    const auto extension = extension_for_path(path);
+    auto image_options = prompt_image_save_options(this, extension, image_save_defaults_for_document(),
+                                                   /*for_export*/ true, sheet.size());
+    if (!image_options.has_value()) {
+      return;
+    }
+    // The sheet routes through the normal export machinery (export transforms, indexed GIF/PCX
+    // quantization, ...) as a flat document. It inherits the source document's print
+    // resolution (the composed QImage would otherwise contribute Qt's screen default).
+    auto sheet_document = document_from_qimage(sheet, tr("Sprite Sheet").toStdString());
+    sheet_document.print_settings() = document().print_settings();
+    write_flat_image_file(sheet_document, path, extension, *image_options);
+    offer_browser_download_for_saved_file(path);
+    remember_save_directory_for_path(path);
+    statusBar()->showMessage(tr("Exported sprite sheet %1").arg(path));
+    if (image_options->export_reveal_in_file_explorer) {
+      reveal_path_in_file_explorer(path, /*is_file*/ true);
+    }
+  } catch (const std::exception& error) {
+    show_critical_message(this, tr("Export failed"), translated_file_message(error.what()),
+                          QStringLiteral("exportFailedMessageBox"));
+  }
+}
+
+void MainWindow::import_image_sequence() {
+  if (preview_dialog_edit_locked()) {
+    show_preview_dialog_edit_lock_message();
+    return;
+  }
+  auto paths = get_open_file_names(this, tr("Image Sequence to Layers"), last_open_directory(), open_file_filter(),
+                                   nullptr, QStringLiteral("imageSequenceImportFileDialog"),
+                                   FilterNameDetails::Hidden);
+  if (paths.isEmpty()) {
+    return;
+  }
+  // A single numbered file stands for its whole sibling run; the confirmation dialog
+  // below shows exactly what the expansion found before anything imports.
+  paths = paths.size() == 1 ? expand_numbered_sequence(paths.front()) : sorted_sequence_paths(std::move(paths));
+
+  // Header-only size probe so the confirmation dialog can state the canvas size
+  // without decoding every frame.
+  QSize canvas_size;
+  for (const auto& path : paths) {
+    const auto size = QImageReader(path).size();
+    if (size.isValid()) {
+      canvas_size = canvas_size.isValid() ? canvas_size.expandedTo(size) : size;
+    }
+  }
+  if (!prompt_image_sequence_import_options(this, paths, canvas_size)) {
+    return;
+  }
+  QString error;
+  auto imported = document_from_image_sequence(paths, &error);
+  if (!imported.has_value()) {
+    show_critical_message(this, tr("Import failed"), error, QStringLiteral("openFailedMessageBox"));
+    return;
+  }
+  const auto frame_count = static_cast<int>(imported->layers().size());
+  if (const auto default_layer_id = default_non_group_layer_id(imported->layers()); default_layer_id.has_value()) {
+    imported->set_active_layer(*default_layer_id);
+  }
+  add_document_session(std::move(*imported), tr("Image Sequence"), QString(),
+                       tr("Import image sequence"));
+  canvas_->fit_to_view();
+  refresh_layer_list();
+  refresh_layer_controls();
+  update_undo_redo_actions();
+  mark_session_modified(session());
+  statusBar()->showMessage(tr("Imported %1 images as layers").arg(frame_count));
+}
+
+void MainWindow::export_image_sequence() {
+  if (!has_active_document()) {
+    show_status_error(tr("No document"));
+    return;
+  }
+  finish_active_text_editor();
+  // One file per top-level layer, bottom to top (matching the sprite-sheet export's
+  // frame semantics); the options dialog picks visible-only (default) or all layers.
+  std::vector<QString> visible_layer_names;
+  std::vector<QString> all_layer_names;
+  for (const auto& layer : std::as_const(document()).layers()) {
+    all_layer_names.push_back(QString::fromStdString(layer.name()));
+    if (layer.visible()) {
+      visible_layer_names.push_back(all_layer_names.back());
+    }
+  }
+  if (all_layer_names.empty()) {
+    show_information_message(this, tr("Export Image Sequence"), tr("There are no layers to export."),
+                             QStringLiteral("imageSequenceNoLayersMessageBox"));
+    return;
+  }
+
+  QString selected_filter;
+  const auto base_name = QFileInfo(session().title.isEmpty() ? tr("Untitled") : session().title).completeBaseName();
+  auto path = get_save_file_name(this, tr("Export Image Sequence"),
+                                 file_dialog_initial_path(QString(), base_name + QStringLiteral("_001.png")),
+                                 export_image_filter(), &selected_filter,
+                                 QStringLiteral("imageSequenceExportFileDialog"));
+  if (path.isEmpty()) {
+    return;
+  }
+  path = path_with_default_extension(path, selected_filter);
+  const QFileInfo chosen(path);
+  const auto extension = extension_for_path(path);
+  const auto options = prompt_image_sequence_export_options(this, visible_layer_names, all_layer_names,
+                                                            naming_from_save_base_name(chosen.completeBaseName()),
+                                                            extension);
+  if (!options.has_value()) {
+    return;
+  }
+  try {
+    auto image_options = prompt_image_save_options(
+        this, extension, image_save_defaults_for_document(), /*for_export*/ true,
+        QSize(std::as_const(document()).width(), std::as_const(document()).height()));
+    if (!image_options.has_value()) {
+      return;
+    }
+    const auto& layer_names = options->visible_layers_only ? visible_layer_names : all_layer_names;
+    const auto file_names = image_sequence_file_names(layer_names, options->naming, extension);
+    const auto directory = chosen.dir();
+    // The save dialog confirmed overwriting only the exact name typed there; the rest
+    // of the set needs its own check.
+    int existing = 0;
+    for (const auto& name : file_names) {
+      const auto target = directory.filePath(name);
+      if (target != path && QFileInfo::exists(target)) {
+        ++existing;
+      }
+    }
+    if (existing > 0) {
+      const auto answer = show_warning_message(
+          this, tr("Export Image Sequence"),
+          tr("%1 of %2 files already exist in this folder. Overwrite them?").arg(existing).arg(file_names.size()),
+          QMessageBox::Yes | QMessageBox::No, QMessageBox::No, QStringLiteral("imageSequenceOverwriteMessageBox"));
+      if (answer != QMessageBox::Yes) {
+        return;
+      }
+    }
+    int frame_index = 0;
+    for (const auto& layer : std::as_const(document()).layers()) {
+      if (options->visible_layers_only && !layer.visible()) {
+        continue;
+      }
+      // Each frame routes through the normal export machinery as a flat document and
+      // inherits the source document's print resolution (same as the sprite sheet).
+      auto frame_document = document_from_qimage(render_layer_isolated(document(), layer), tr("Frame").toStdString());
+      frame_document.print_settings() = document().print_settings();
+      write_flat_image_file(frame_document, directory.filePath(file_names[frame_index]), extension, *image_options);
+      ++frame_index;
+    }
+    remember_save_directory_for_path(path);
+    statusBar()->showMessage(tr("Exported %1 images to %2").arg(file_names.size()).arg(directory.absolutePath()));
+    if (image_options->export_reveal_in_file_explorer) {
+      reveal_path_in_file_explorer(directory.absolutePath(), /*is_file*/ false);
+    }
+  } catch (const std::exception& error) {
+    show_critical_message(this, tr("Export failed"), translated_file_message(error.what()),
+                          QStringLiteral("exportFailedMessageBox"));
+  }
+}
+
+void MainWindow::export_animated_gif() {
+  if (!has_active_document()) {
+    show_status_error(tr("No document"));
+    return;
+  }
+  finish_active_text_editor();
+  // One frame per visible top-level layer, top to bottom; the options dialog restates
+  // the rules (hidden layers skipped, "0.25s" name tokens override the default delay).
+  if (!has_visible_top_level_layer(std::as_const(document()))) {
+    show_information_message(this, tr("Export Animated GIF"), tr("There are no visible layers to export."),
+                             QStringLiteral("animatedGifNoLayersMessageBox"));
+    return;
+  }
+  QString selected_filter;
+  const auto base_name = QFileInfo(session().title.isEmpty() ? tr("Untitled") : session().title).completeBaseName();
+  const auto initial_path = file_dialog_initial_path(QString(), base_name + QStringLiteral(".gif"));
+  auto path = get_save_file_name(this, tr("Export Animated GIF"), initial_path,
+                                 save_file_filter_for_path(initial_path), &selected_filter,
+                                 QStringLiteral("animatedGifExportFileDialog"));
+  if (path.isEmpty()) {
+    return;
+  }
+  path = path_with_default_extension(path, selected_filter);
+  auto options = prompt_gif_save_options(this, image_save_defaults_for_document(),
+                                         /*offer_flatten_choice*/ false, /*for_export*/ true,
+                                         /*has_visible_frames*/ true,
+                                         QSize(std::as_const(document()).width(), std::as_const(document()).height()));
+  if (!options.has_value()) {
+    return;
+  }
+  try {
+    std::vector<std::string> writer_notices;
+    write_flat_image_file(document(), path, QStringLiteral("gif"), *options, &writer_notices);
+    offer_browser_download_for_saved_file(path);
+    remember_save_directory_for_path(path);
+    statusBar()->showMessage(tr("Exported %1").arg(path) + export_notes_suffix_for(writer_notices));
+    if (options->export_reveal_in_file_explorer) {
+      reveal_path_in_file_explorer(path, /*is_file*/ true);
+    }
+  } catch (const std::exception& error) {
+    show_critical_message(this, tr("Export failed"), translated_file_message(error.what()),
+                          QStringLiteral("exportFailedMessageBox"));
+  }
+}
+
+void MainWindow::set_tile_preview_visible(bool visible, QAction* toggle_action) {
+  if (!visible) {
+    if (tile_preview_window_ != nullptr) {
+      tile_preview_window_->close();
+    }
+    return;
+  }
+  if (tile_preview_window_ == nullptr) {
+    auto* window = new TilePreviewWindow(
+        [this]() -> const Document* { return has_active_document() ? &document() : nullptr; },
+        [this] { toggle_tile_seam_offset(); }, this);
+    window->setAttribute(Qt::WA_DeleteOnClose);
+    connect(window, &TilePreviewWindow::preview_closed, this, [toggle_action] {
+      if (toggle_action != nullptr) {
+        toggle_action->setChecked(false);
+      }
+    });
+    tile_preview_window_ = window;
+  }
+  tile_preview_window_->show();
+  tile_preview_window_->raise();
+  tile_preview_window_->activateWindow();
+}
+
+void MainWindow::toggle_animation_preview_window() {
+  if (animation_preview_window_ != nullptr && animation_preview_window_->isVisible()) {
+    // close() funnels through done(), which stops playback and restores visibility.
+    animation_preview_window_->close();
+    return;
+  }
+  if (animation_preview_window_ == nullptr) {
+    auto* window = new AnimationPreviewWindow(
+        [this]() -> Document* { return has_active_document() ? &document() : nullptr; },
+        [this](bool final_refresh) {
+          if (canvas_ != nullptr) {
+            canvas_->document_changed();
+          }
+          if (final_refresh) {
+            refresh_layer_list();
+            refresh_layer_controls();
+          } else {
+            // Per-frame: a full row rebuild is too heavy at animation rates.
+            sync_layer_row_visibility_indicators();
+          }
+        },
+        [this](std::optional<std::uint16_t> delay_cs) { set_selected_layers_frame_time(delay_cs); },
+        this);
+    window->setAttribute(Qt::WA_DeleteOnClose);
+    animation_preview_window_ = window;
+  }
+  animation_preview_window_->show();
+  animation_preview_window_->raise();
+  animation_preview_window_->activateWindow();
+}
+
+bool MainWindow::save_document() {
+  if (!has_active_document()) {
+    show_status_error(tr("No document"));
+    return false;
+  }
+  finish_active_text_editor();
+  if (session().smart_object_link.has_value()) {
+    if (session().smart_object_link->external) {
+      // A linked-file child: the file on disk is the source of truth, so write it
+      // first and only then refresh the parent's previews and link metadata.
+      if (session().path.isEmpty()) {
+        return save_document_as();
+      }
+      if (!save_document_to_path(session().path)) {
+        return false;
+      }
+      return true;
+    }
+    // An embedded Edit Smart Object Contents tab: Save applies the contents back to
+    // the parent document instead of writing a file (Photoshop semantics).
+    return commit_smart_object_child_session(session());
+  }
+  if (session().path.isEmpty()) {
+    return save_document_as();
+  }
+  if (is_read_only_source_extension(extension_for_path(session().path))) {
+    // The document was developed from a read-only source (camera raw); writing the raw
+    // back is impossible, so Save is really Save As (defaulting to <basename>.psd).
+    return save_document_as();
+  }
+  if (!save_extension_preserves_layers(extension_for_path(session().path)) &&
+      flat_save_discards_layers(std::as_const(document()))) {
+    // Photoshop behavior: Save on a document whose file format cannot hold its layers
+    // (a JPEG that grew layers) turns into Save As, defaulting to PSD, instead of
+    // silently flattening back over the original file.
+    return save_document_as();
+  }
+  return save_document_to_path(session().path);
+}
+
+bool MainWindow::save_document_as() {
+  if (!has_active_document()) {
+    show_status_error(tr("No document"));
+    return false;
+  }
+  finish_active_text_editor();
+  const auto saving_session_id = session().session_id;
+  const auto still_saving_same_session = [this, saving_session_id] {
+    return has_active_document() && session().session_id == saving_session_id;
+  };
+  const auto fallback_name = session().title.isEmpty() ? tr("Untitled.psd") : session().title;
+  auto initial_path = file_dialog_initial_path(session().path, fallback_name);
+  const bool layered_document = flat_save_discards_layers(std::as_const(document()));
+  if ((layered_document && !save_extension_preserves_layers(extension_for_path(initial_path))) ||
+      is_read_only_source_extension(extension_for_path(initial_path))) {
+    // Photoshop behavior: Save As for a layered document defaults to PSD, not the flat
+    // format the document was opened from. Read-only sources (camera raw) also default
+    // to PSD: their own extension can never be written.
+    const QFileInfo initial_info(initial_path);
+    const auto base_name = is_supported_image_extension(extension_for_path(initial_path))
+                               ? initial_info.completeBaseName()
+                               : initial_info.fileName();
+    initial_path = initial_info.dir().filePath(base_name + QStringLiteral(".psd"));
+  }
+  auto selected_filter = save_file_filter_for_path(initial_path);
+  refresh_recent_history();
+  auto path = get_save_file_name(this, tr("Save As"), initial_path, save_file_filter(), &selected_filter,
+                                 QStringLiteral("saveAsFileDialog"), recent_files_);
+  if (path.isEmpty() || !still_saving_same_session()) {
+    return false;
+  }
+  path = path_with_default_extension(path, selected_filter);
+  const auto extension = extension_for_path(path);
+  const bool discards_layers = layered_document && !save_extension_preserves_layers(extension);
+  const bool linked_external_child =
+      session().smart_object_link.has_value() && session().smart_object_link->external;
+  std::optional<ImageSaveOptions> image_options;
+  std::optional<bool> pdf_editable_layers;
+  if (discards_layers) {
+    if (is_pdf_extension(extension) && !linked_external_child) {
+      pdf_editable_layers = resolve_pdf_layer_choice(/*for_export*/ false, /*allow_prompt*/ true);
+      if (!pdf_editable_layers.has_value()) {
+        return false;
+      }
+    } else if (extension == QStringLiteral("gif") && std::as_const(document()).layers().size() >= 2) {
+      // GIF asks animation-or-flatten instead of the plain flatten warning; an explicit
+      // animation choice needs no warning (the frames round-trip through reopening).
+      auto gif_options =
+          prompt_gif_save_options(this, image_save_defaults_for_document(), /*offer_flatten_choice*/ true,
+                                  /*for_export*/ false, has_visible_top_level_layer(std::as_const(document())));
+      if (!gif_options.has_value()) {
+        return false;
+      }
+      if (!gif_options->gif_animate && !confirm_flatten_layers_for_save(extension)) {
+        return false;
+      }
+      image_options = std::move(gif_options);
+    } else if (!confirm_flatten_layers_for_save(extension)) {
+      return false;
+    }
+  }
+  if (!image_options.has_value() && !is_photoshop_document_extension(extension) &&
+      image_save_options_apply_to_extension(extension)) {
+    auto defaults = image_save_defaults_for_document();
+    defaults.pdf_editable_layers = pdf_editable_layers.value_or(false);
+    image_options = prompt_image_save_options(this, extension, defaults);
+    if (!image_options.has_value()) {
+      return false;
+    }
+  }
+  if (!still_saving_same_session() ||
+      !save_document_to_path(path, image_options, /*flatten_confirmed*/ discards_layers)) {
+    return false;
+  }
+  return true;
+}
+
+bool MainWindow::confirm_flatten_layers_for_save(const QString& extension) {
+  const bool linked_external_child =
+      session().smart_object_link.has_value() && session().smart_object_link->external;
+  // A linked smart-object child writes the linked file itself (the file on disk is the
+  // document), so its flat save is a real save; everything else saves a flattened copy
+  // and keeps the layered document open with its unsaved changes (Photoshop's
+  // save-a-copy semantics). SVG gets its own wording: shape layers stay real
+  // vectors there and only the rest bakes. PDF (not linked) never comes here: it
+  // asks flatten-or-editable through resolve_pdf_layer_choice instead.
+  const auto message =
+      extension == QStringLiteral("svg")
+          ? tr("SVG keeps shape layers as vectors, but masks, layer styles, text, and adjustments are "
+               "baked into images, so MyAIPs will save a copy. The open document will keep its layers "
+               "and unsaved changes. To keep everything editable, save as a Photoshop document (.psd) "
+               "instead.")
+      : linked_external_child
+          ? tr("This file format cannot store layers. Continue saving and flatten the linked file?")
+          : tr("This file format cannot store layers, so MyAIPs will save a flattened copy. The open "
+               "document will keep its layers and unsaved changes. To keep layers in the file, save as a "
+               "Photoshop document (.psd) instead.");
+  const auto answer =
+      show_warning_message(this, tr("Layers Will Be Flattened"), message,
+                           QMessageBox::Save | QMessageBox::Cancel, QMessageBox::Cancel,
+                           QStringLiteral("flattenLayersMessageBox"));
+  return answer == QMessageBox::Save;
+}
+
+// A layered document going to PDF has two honest forms (one flattened image, or layers
+// kept as paths/text/images that may not composite exactly like the canvas), so instead
+// of the flatten confirmation the user picks one here. The remembered policy
+// (saveOptions/pdfLayerPolicy: "ask" / "flatten" / "editable", also in Preferences)
+// answers without a dialog; the dialog's "Remember this choice" sets it. Returns the
+// choice (true = keep layers editable) or nullopt for Cancel.
+std::optional<bool> MainWindow::resolve_pdf_layer_choice(bool for_export, bool allow_prompt) {
+  auto settings = app_settings();
+  const auto policy = settings.value(QStringLiteral("saveOptions/pdfLayerPolicy"), QStringLiteral("ask")).toString();
+  if (policy == QStringLiteral("flatten")) {
+    return false;
+  }
+  if (policy == QStringLiteral("editable")) {
+    return true;
+  }
+  if (!allow_prompt) {
+    // A scripted, CLI, or already-confirmed save cannot ask; "ask" means flat, which is
+    // the mode that always reproduces the canvas.
+    return false;
+  }
+  QMessageBox box(this);
+  box.setObjectName(QStringLiteral("pdfLayersMessageBox"));
+  box.setIcon(QMessageBox::Question);
+  box.setWindowTitle(for_export ? tr("Export PDF Layers") : tr("Save PDF Layers"));
+  box.setText(tr("How should this document's layers be written to the PDF?"));
+  box.setInformativeText(
+      tr("Keep layers editable: shape layers become paths, text stays real text, and pixel layers "
+         "become images, so the PDF opens as separate pieces in MyAIPs and other editors. Blend modes, "
+         "adjustment layers, group opacity, layer styles, and pixel masks are flattened into images "
+         "where needed, so the page may not look exactly like the canvas.\n\n"
+         "Flatten to one image: the page looks exactly like the canvas.\n\n"
+         "Either way MyAIPs writes a copy; the open document keeps its layers and unsaved changes. "
+         "Preferences > Saving layered documents as PDF sets a default that skips this question."));
+  auto* editable_button = box.addButton(tr("Keep Layers Editable"), QMessageBox::AcceptRole);
+  auto* flatten_button = box.addButton(tr("Flatten to One Image"), QMessageBox::AcceptRole);
+  box.addButton(QMessageBox::Cancel);
+  box.setDefaultButton(flatten_button);
+  box.setEscapeButton(QMessageBox::Cancel);
+  auto* remember = new QCheckBox(tr("Remember this choice"), &box);
+  remember->setObjectName(QStringLiteral("pdfLayersRememberCheck"));
+  box.setCheckBox(remember);
+  exec_dialog(box);
+  const auto* clicked = box.clickedButton();
+  if (clicked != editable_button && clicked != flatten_button) {
+    return std::nullopt;
+  }
+  const bool editable = clicked == editable_button;
+  if (remember->isChecked()) {
+    settings.setValue(QStringLiteral("saveOptions/pdfLayerPolicy"),
+                      editable ? QStringLiteral("editable") : QStringLiteral("flatten"));
+  }
+  return editable;
+}
+
+bool MainWindow::save_document_to_path(QString path, std::optional<ImageSaveOptions> image_options,
+                                       bool flatten_confirmed) {
+  finish_active_text_editor();
+  if (!has_active_document()) {
+    return false;
+  }
+  const auto saving_session_id = session().session_id;
+  // Playback drives real layer visibility one frame at a time; a save mid-playback would
+  // write that frame's visibility to disk (close_document_session stops it for the same
+  // reason before its own prompt).
+  if (animation_preview_window_ != nullptr && has_active_document()) {
+    animation_preview_window_->stop_playback_for(&document());
+  }
+  const auto extension = extension_for_path(path);
+  const bool discards_layers = !save_extension_preserves_layers(extension) &&
+                               flat_save_discards_layers(std::as_const(document()));
+  // CLI automation saves are explicit about their target format, so flattening needs no
+  // confirmation there (and an unattended run must never block on the prompt).
+  const bool linked_external_child =
+      session().smart_object_link.has_value() && session().smart_object_link->external;
+  // A layered PDF asks its own flatten-or-editable question instead of the generic
+  // flatten confirmation, and never both.
+  const bool pdf_layer_choice_applies = discards_layers && is_pdf_extension(extension) && !linked_external_child;
+  std::optional<bool> pdf_editable_layers;
+  if (pdf_layer_choice_applies) {
+    if (!image_options.has_value()) {
+      // Nobody has resolved the choice yet (Save As and Export resolve it before calling
+      // and hand the answer over in `image_options`): ask when this save may prompt,
+      // otherwise take the preference. Scripted, CLI, and already-confirmed saves never
+      // prompt.
+      pdf_editable_layers = resolve_pdf_layer_choice(
+          /*for_export*/ false, /*allow_prompt*/ !flatten_confirmed && !unattended_automation());
+      if (!pdf_editable_layers.has_value()) {
+        return false;
+      }
+    }
+  } else if (discards_layers && !flatten_confirmed && !unattended_automation() &&
+             !confirm_flatten_layers_for_save(extension)) {
+    return false;
+  }
+  if (!unattended_automation() && !is_photoshop_document_extension(extension) &&
+      !std::as_const(document()).channels().empty()) {
+    const auto answer = show_warning_message(
+        this, tr("Saved Channels Will Be Discarded"),
+        tr("This file format cannot store saved channels. Continue saving and discard them?"),
+        QMessageBox::Save | QMessageBox::Cancel, QMessageBox::Cancel,
+        QStringLiteral("discardSavedChannelsMessageBox"));
+    if (answer != QMessageBox::Save) {
+      return false;
+    }
+  }
+  if (!unattended_automation() && (extension == QStringLiteral("aseprite") || extension == QStringLiteral("ase")) &&
+      layers_have_nondefault_fill_opacity(std::as_const(document()).layers())) {
+    const auto answer = show_warning_message(
+        this, tr("Fill Opacity Will Be Discarded"),
+        tr("Aseprite files cannot store Photoshop Fill Opacity. Continue saving without Fill Opacity?"),
+        QMessageBox::Save | QMessageBox::Cancel, QMessageBox::Cancel,
+        QStringLiteral("discardFillOpacityMessageBox"));
+    if (answer != QMessageBox::Save) {
+      return false;
+    }
+  }
+  if (!has_active_document() || session().session_id != saving_session_id) {
+    return false;
+  }
+  try {
+    auto effective_image_options = image_options.value_or(image_save_defaults_for_document());
+    if (!image_options.has_value() && image_save_options_apply_to_extension(extension)) {
+      const auto& active_session = session();
+      if (active_session.image_save_options.has_value() && active_session.image_save_options_path == path &&
+          active_session.image_save_options_extension == extension) {
+        effective_image_options = *active_session.image_save_options;
+      }
+    }
+    if (pdf_editable_layers.has_value()) {
+      effective_image_options.pdf_editable_layers = *pdf_editable_layers;
+    }
+
+    QString export_notes_suffix;
+    if (is_photoshop_document_extension(extension)) {
+      psd::DocumentIo::write_layered_rgb8_file(document(), to_filesystem_path(path),
+                                               psd::WriteOptions{extension == QStringLiteral("psb")});
+    } else if (extension == QStringLiteral("aseprite") || extension == QStringLiteral("ase")) {
+      // Layered save: the Aseprite writer keeps the layer tree instead of flattening.
+      aseprite::DocumentIo::write_file(document(), to_filesystem_path(path));
+    } else if (extension == QStringLiteral("svg")) {
+      // Structure-preserving vector write (never write_flat_image_file):
+      // shape layers stay SVG vectors, the writer reports what it baked.
+      std::vector<std::string> svg_notices;
+      svg::DocumentIo::write_file(document(), to_filesystem_path(path), &svg_notices);
+      export_notes_suffix = export_notes_suffix_for(svg_notices);
+    } else {
+      // Editable PDF keeps layers and reports what it baked, like the SVG writer.
+      std::vector<std::string> writer_notices;
+      write_flat_image_file(document(), path, extension, effective_image_options, &writer_notices);
+      export_notes_suffix = export_notes_suffix_for(writer_notices);
+    }
+    offer_browser_download_for_saved_file(path);
+    const bool saved_flattened_copy =
+        discards_layers &&
+        !(session().smart_object_link.has_value() && session().smart_object_link->external);
+    if (saved_flattened_copy) {
+      // Photoshop's save-a-copy semantics: only the flat copy lands on disk; the layered
+      // document stays open, modified, and pointed at its original file, so a later Save
+      // still offers PSD instead of quietly flattening again.
+      if (!unattended_automation()) {
+        remember_save_directory_for_path(path);
+        if (image_save_options_apply_to_extension(extension)) {
+          persist_image_save_defaults(effective_image_options);
+        }
+      }
+      add_recent_file(path);
+      statusBar()->showMessage((extension == QStringLiteral("svg") ? tr("Saved SVG copy %1.")
+                                : is_pdf_extension(extension) && effective_image_options.pdf_editable_layers
+                                    ? tr("Saved PDF copy with editable layers %1.")
+                                : extension == QStringLiteral("gif") && effective_image_options.gif_animate
+                                    ? tr("Saved animated GIF copy %1")
+                                    : tr("Saved flattened copy %1"))
+                                   .arg(path) +
+                               export_notes_suffix);
+      return true;
+    }
+    auto& active_session = session();
+    active_session.path = path;
+    active_session.title = QFileInfo(path).fileName();
+    if (!unattended_automation()) {
+      remember_save_directory_for_path(path);
+    }
+    if (!is_photoshop_document_extension(extension) && image_save_options_apply_to_extension(extension)) {
+      active_session.image_save_options = effective_image_options;
+      active_session.image_save_options_path = path;
+      active_session.image_save_options_extension = extension;
+      if (!unattended_automation()) {
+        persist_image_save_defaults(effective_image_options);
+      }
+    } else {
+      active_session.image_save_options.reset();
+      active_session.image_save_options_path.clear();
+      active_session.image_save_options_extension.clear();
+    }
+    set_session_saved(active_session);
+    add_recent_file(path);
+    statusBar()->showMessage(tr("Saved %1").arg(path) + export_notes_suffix);
+    if (linked_external_child) {
+      refresh_external_smart_object_after_save(active_session);
+    }
+    return true;
+  } catch (const std::exception& error) {
+    if (unattended_automation()) {
+      fprintf(stderr, "Save failed: %s (%s)\n", error.what(), path.toUtf8().constData());
+    } else {
+      show_critical_message(this, tr("Save failed"), translated_file_message(error.what()),
+                            QStringLiteral("saveFailedMessageBox"));
+    }
+  }
+  return false;
+}
+
+void MainWindow::export_flat_image() {
+  if (!has_active_document()) {
+    show_status_error(tr("No document"));
+    return;
+  }
+  finish_active_text_editor();
+  QString selected_filter;
+  const auto base_name = QFileInfo(session().title.isEmpty() ? tr("Untitled") : session().title).completeBaseName();
+  auto path =
+      get_save_file_name(this, tr("Export Flat Image"),
+                         file_dialog_initial_path(QString(), base_name + QStringLiteral(".png")),
+                         export_image_filter(), &selected_filter, QStringLiteral("exportFlatImageFileDialog"));
+  if (path.isEmpty()) {
+    return;
+  }
+  path = path_with_default_extension(path, selected_filter);
+
+  try {
+    const auto extension = extension_for_path(path);
+    const bool svg_export = extension == QStringLiteral("svg");
+    std::optional<ImageSaveOptions> image_options;
+    if (!is_photoshop_document_extension(extension) && !svg_export) {
+      auto defaults = image_save_defaults_for_document();
+      if (is_pdf_extension(extension) && flat_save_discards_layers(std::as_const(document()))) {
+        // Flatten or keep layers editable: the remembered policy or the question.
+        const auto pdf_editable_layers = resolve_pdf_layer_choice(/*for_export*/ true, /*allow_prompt*/ true);
+        if (!pdf_editable_layers.has_value()) {
+          return;
+        }
+        defaults.pdf_editable_layers = *pdf_editable_layers;
+      }
+      // for_export adds the shared Export section (resize, pixel-art scale, transparency,
+      // trim, reveal) to every raster format's options (a section-only dialog for formats
+      // with no other options). SVG has no raster options: vectors scale client-side.
+      const QSize document_size(std::as_const(document()).width(), std::as_const(document()).height());
+      if (extension == QStringLiteral("gif") && std::as_const(document()).layers().size() >= 2) {
+        // Animation-or-flatten plus the delay, replacing the section-only dialog.
+        image_options = prompt_gif_save_options(this, defaults, /*offer_flatten_choice*/ true,
+                                                /*for_export*/ true,
+                                                has_visible_top_level_layer(std::as_const(document())),
+                                                document_size);
+      } else {
+        image_options =
+            prompt_image_save_options(this, extension, defaults, /*for_export*/ true, document_size);
+      }
+      if (!image_options.has_value()) {
+        return;
+      }
+    }
+    const auto effective_image_options = image_options.value_or(image_save_defaults_for_document());
+    QString export_notes_suffix;
+    if (is_photoshop_document_extension(extension)) {
+      psd::DocumentIo::write_flat_rgb8_file(document(), to_filesystem_path(path));
+    } else if (svg_export) {
+      // The same structure-preserving writer as Save As: shape layers export
+      // as real vectors even from the "flat" export flow.
+      std::vector<std::string> svg_notices;
+      svg::DocumentIo::write_file(document(), to_filesystem_path(path), &svg_notices);
+      export_notes_suffix = export_notes_suffix_for(svg_notices);
+    } else {
+      std::vector<std::string> writer_notices;
+      write_flat_image_file(document(), path, extension, effective_image_options, &writer_notices);
+      export_notes_suffix = export_notes_suffix_for(writer_notices);
+    }
+    offer_browser_download_for_saved_file(path);
+    if (!is_photoshop_document_extension(extension) && image_save_options_apply_to_extension(extension)) {
+      persist_image_save_defaults(effective_image_options);
+    }
+    remember_save_directory_for_path(path);
+    statusBar()->showMessage(tr("Exported %1").arg(path) + export_notes_suffix);
+    if (effective_image_options.export_reveal_in_file_explorer) {
+      reveal_path_in_file_explorer(path, /*is_file*/ true);
+    }
+  } catch (const std::exception& error) {
+    show_critical_message(this, tr("Export failed"), translated_file_message(error.what()),
+                          QStringLiteral("exportFailedMessageBox"));
+  }
+}
+
+void MainWindow::page_setup() {
+  run_page_setup_dialog(this, &print_page_layout_);
+}
+
+void MainWindow::print_document() {
+  if (!has_active_document()) {
+    show_status_error(tr("No document"));
+    return;
+  }
+  std::optional<QRect> selection_bounds;
+  if (canvas_ != nullptr) {
+    selection_bounds = canvas_->selected_document_rect();
+  }
+  if (run_print_dialog(this, document(), session().title, selection_bounds, &print_page_layout_)) {
+    statusBar()->showMessage(tr("Print output created"));
+  }
+}
+
+void MainWindow::show_update_available(const UpdateInfo& update) {
+  // The install advice is artifact-specific: Windows ships an installer exe, macOS a
+  // drag-to-Applications DMG, Linux a Flatpak bundle.
+#if defined(Q_OS_MACOS)
+  const auto update_text = tr("MyAIPs %1 is available. You are using version %2.\n\n"
+                              "Download the DMG, quit MyAIPs, and drag the new MyAIPs into Applications.")
+                               .arg(update.version, QStringLiteral(PATCHY_VERSION));
+#elif defined(Q_OS_LINUX)
+  // A flatpak bundle installs from a local path only (URLs work only for repo-backed
+  // flatpakrefs), so the one-liner fetches the stable URL first. curl ships by default
+  // on Ubuntu/Fedora/Arch/openSUSE.
+  const auto bundle_name = QFileInfo(update.download_url.path()).fileName();
+  const auto install_command = QStringLiteral("curl -L -o /tmp/%1 %2 && flatpak install -y /tmp/%1")
+                                   .arg(bundle_name, update.download_url.toString());
+  const auto update_text = tr("MyAIPs %1 is available. You are using version %2.\n\n"
+                              "To update, paste this into a terminal:\n\n%3")
+                               .arg(update.version, QStringLiteral(PATCHY_VERSION), install_command);
+#else
+  const auto update_text = tr("MyAIPs %1 is available. You are using version %2.\n\n"
+                              "Save your work and close MyAIPs before running the installer.")
+                               .arg(update.version, QStringLiteral(PATCHY_VERSION));
+#endif
+  QMessageBox dialog(QMessageBox::Information, tr("Update Available"), update_text, QMessageBox::NoButton, this);
+  dialog.setObjectName(QStringLiteral("updateAvailableMessageBox"));
+  dialog.setTextInteractionFlags(Qt::TextSelectableByMouse);
+#if defined(Q_OS_LINUX)
+  auto* copy_button = dialog.addButton(tr("Copy Command"), QMessageBox::AcceptRole);
+  copy_button->setObjectName(QStringLiteral("updateCopyCommandButton"));
+  dialog.setDefaultButton(copy_button);
+#else
+  QAbstractButton* copy_button = nullptr;
+#endif
+  auto* download_button = dialog.addButton(tr("Download"), QMessageBox::AcceptRole);
+  dialog.addButton(tr("Not Now"), QMessageBox::RejectRole);
+#if !defined(Q_OS_LINUX)
+  dialog.setDefaultButton(download_button);
+#endif
+
+  exec_dialog(dialog);
+#if defined(Q_OS_LINUX)
+  if (dialog.clickedButton() == copy_button) {
+    if (auto* clipboard = QApplication::clipboard(); clipboard != nullptr) {
+      clipboard->setText(install_command);
+    }
+    statusBar()->showMessage(tr("Install command copied to the clipboard"));
+    return;
+  }
+#else
+  Q_UNUSED(copy_button);
+#endif
+  if (dialog.clickedButton() == download_button && !QDesktopServices::openUrl(update.download_url)) {
+    show_status_error(tr("Could not open the download link"));
+  }
+}
+
+void MainWindow::begin_startup_update_check() {
+#ifdef Q_OS_WASM
+  // The web build updates by redeploying the site; the GitHub manifest fetch
+  // would only fail CORS and surface a network error on the start panel.
+  return;
+#endif
+  {
+    auto settings = app_settings();
+    // MyAIPs has no release feed yet; keep the upstream Patchy check off by default.
+    if (!settings.value(QStringLiteral("updates/checkOnStartup"), false).toBool()) {
+      return;
+    }
+  }
+  if (start_panel_ != nullptr) {
+    start_panel_->set_update_status(QObject::tr("Checking for updates..."));
+  }
+  // request_update_check drops the callback if this owner is destroyed first, so `this`
+  // stays safe to capture. The status lands on the panel even while it is hidden (a file
+  // was opened at startup): it shows if the panel reappears after the last document closes.
+  request_update_check(this, QStringLiteral(PATCHY_VERSION), [this](UpdateCheckResult result) {
+    if (start_panel_ != nullptr) {
+      start_panel_->set_update_status(update_check_status_text(result));
+    }
+    if (result.update.has_value()) {
+      show_update_available(*result.update);
+    }
+  });
+}
+
+void MainWindow::load_recent_files() {
+  auto settings = recent_history_settings();
+  settings.sync();
+  recent_files_ = settings.value(QStringLiteral("recentFiles")).toStringList();
+  recent_files_.erase(std::remove_if(recent_files_.begin(), recent_files_.end(), [](const QString& path) {
+                        return path.trimmed().isEmpty() || !QFileInfo::exists(path);
+                      }),
+                      recent_files_.end());
+  trim_recent_files(recent_files_);
+}
+
+void MainWindow::refresh_recent_history() {
+  const auto files = recent_files_;
+  const auto folders = recent_folders_;
+  load_recent_files();
+  load_recent_folders();
+  if (files != recent_files_) rebuild_recent_files_menu();
+  if (folders != recent_folders_) rebuild_recent_folders_menu();
+}
+
+void MainWindow::add_recent_file(QString path) {
+  path = QFileInfo(path).absoluteFilePath();
+  if (path.isEmpty()) {
+    return;
+  }
+  recent_files_ = update_recent_history(QStringLiteral("recentFiles"), kMaxRecentFiles,
+      [&path](QStringList& paths) { paths.removeAll(path); paths.prepend(path); });
+  rebuild_recent_files_menu();
+  add_recent_folder(QFileInfo(path).absolutePath());
+}
+
+void MainWindow::rebuild_recent_files_menu() {
+  // The start panel mirrors the recent list while it is showing (e.g. a recent
+  // entry was cleared from the menu with no document open).
+  if (start_panel_ != nullptr && start_panel_->isVisible()) {
+    start_panel_->set_recent_files(recent_files_);
+  }
+  if (recent_files_menu_ == nullptr) {
+    return;
+  }
+  recent_files_menu_->clear();  // also deletes the previous filter row and its edit
+  recent_files_filter_action_ = nullptr;
+  recent_files_filter_edit_ = nullptr;
+  recent_files_no_matches_action_ = nullptr;
+  recent_files_filtered_actions_.clear();
+  recent_files_structure_actions_.clear();
+  recent_files_menu_->setEnabled(!recent_files_.isEmpty());
+
+  // A native menu bar (the macOS global bar) cannot host QWidgetAction rows;
+  // those platforms keep the plain paged menu.
+  const bool native_menu_bar = menuBar() != nullptr && menuBar()->isNativeMenuBar();
+  if (!recent_files_.isEmpty() && !native_menu_bar) {
+    auto* filter_row = new QWidget(recent_files_menu_);
+    filter_row->setObjectName(QStringLiteral("fileOpenRecentFilterRow"));
+    auto* filter_layout = new QHBoxLayout(filter_row);
+    filter_layout->setContentsMargins(8, 6, 8, 6);
+    recent_files_filter_edit_ = new QLineEdit(filter_row);
+    recent_files_filter_edit_->setObjectName(QStringLiteral("fileOpenRecentFilterEdit"));
+    recent_files_filter_edit_->setClearButtonEnabled(true);
+    recent_files_filter_edit_->setFixedHeight(24);
+    // Keeps the popup a usable width while a filter hides every row.
+    recent_files_filter_edit_->setMinimumWidth(320);
+    // The edit's own Cut/Copy/Paste popup must not nest inside the menu popup.
+    recent_files_filter_edit_->setContextMenuPolicy(Qt::NoContextMenu);
+    bind_widget_text(recent_files_filter_edit_, QT_TRANSLATE_NOOP("patchy::ui::MainWindow", "Filter recent files..."));
+    filter_layout->addWidget(recent_files_filter_edit_);
+    // The global QWidget rule would otherwise paint @window_bg over the menu background.
+    set_themed_style(*filter_row,
+                     QStringLiteral("QWidget#fileOpenRecentFilterRow { background: transparent; }"));
+    auto* filter_action = new QWidgetAction(recent_files_menu_);
+    filter_action->setObjectName(QStringLiteral("fileOpenRecentFilterAction"));
+    filter_action->setDefaultWidget(filter_row);
+    recent_files_menu_->addAction(filter_action);
+    recent_files_filter_action_ = filter_action;
+    connect(recent_files_filter_edit_, &QLineEdit::textChanged, this,
+            [this](const QString& text) { apply_recent_files_filter(text); });
+
+    recent_files_no_matches_action_ = recent_files_menu_->addAction(tr("No matching recent files"));
+    recent_files_no_matches_action_->setObjectName(QStringLiteral("fileOpenRecentNoMatchesAction"));
+    recent_files_no_matches_action_->setEnabled(false);
+    recent_files_no_matches_action_->setVisible(false);
+  }
+
+  const auto add_recent_action = [this](QMenu* menu, const QString& path, int index) {
+    const auto label = tr("&%1 %2").arg(index).arg(QDir::toNativeSeparators(path));
+    auto* action = menu->addAction(label);
+    action->setToolTip(path);
+    action->setData(path);
+    connect(action, &QAction::triggered, this, [this, path] { open_recent_document(path); });
+  };
+
+  const auto recent_count = static_cast<int>(recent_files_.size());
+  const auto direct_count = std::min(recent_count, kRecentFilesMenuPageSize);
+  for (int index = 0; index < direct_count; ++index) {
+    add_recent_action(recent_files_menu_, recent_files_[index], index + 1);
+  }
+
+  if (recent_count > direct_count) {
+    recent_files_menu_->addSeparator();
+    for (int page_start = direct_count; page_start < recent_count; page_start += kRecentFilesMenuPageSize) {
+      const auto page_end = std::min(page_start + kRecentFilesMenuPageSize, recent_count);
+      auto* page_menu = recent_files_menu_->addMenu(tr("Recent Files %1-%2").arg(page_start + 1).arg(page_end));
+      page_menu->setObjectName(QStringLiteral("fileOpenRecentRangeMenu%1").arg(page_start + 1));
+      configure_recent_files_context_menu(page_menu);
+      for (int index = page_start; index < page_end; ++index) {
+        add_recent_action(page_menu, recent_files_[index], index + 1);
+      }
+    }
+  }
+
+  if (!recent_files_.isEmpty()) {
+    recent_files_menu_->addSeparator();
+    auto* clear_action = recent_files_menu_->addAction(tr("Clear Recent Files"));
+    clear_action->setObjectName(QStringLiteral("fileClearRecentAction"));
+    connect(clear_action, &QAction::triggered, this, [this] {
+      recent_files_ = update_recent_history(QStringLiteral("recentFiles"), kMaxRecentFiles,
+          [](QStringList& paths) { paths.clear(); });
+      rebuild_recent_files_menu();
+    });
+  }
+
+  // Everything the filter hides while active; the filter and no-matches rows
+  // stay visible through filtering.
+  for (auto* action : recent_files_menu_->actions()) {
+    if (action != recent_files_filter_action_ && action != recent_files_no_matches_action_) {
+      recent_files_structure_actions_ << action;
+    }
+  }
+}
+
+void MainWindow::apply_recent_files_filter(const QString& filter_text) {
+  if (recent_files_menu_ == nullptr || recent_files_filter_action_ == nullptr) {
+    return;
+  }
+  for (auto* action : recent_files_filtered_actions_) {
+    recent_files_menu_->removeAction(action);
+    delete action;
+  }
+  recent_files_filtered_actions_.clear();
+
+  const auto tokens = filter_text.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+  const bool filtering = !tokens.isEmpty();
+  for (auto* action : recent_files_structure_actions_) {
+    action->setVisible(!filtering);
+  }
+
+  if (filtering) {
+    const auto recent_count = static_cast<int>(recent_files_.size());
+    for (int index = 0;
+         index < recent_count && recent_files_filtered_actions_.size() < kRecentFilesMenuPageSize; ++index) {
+      const auto path = recent_files_[index];
+      const auto native_path = QDir::toNativeSeparators(path);
+      const bool matches = std::all_of(tokens.begin(), tokens.end(), [&native_path](const QString& token) {
+        return native_path.contains(token, Qt::CaseInsensitive);
+      });
+      if (!matches) {
+        continue;
+      }
+      // Labels keep the original recency index so a filtered row still says
+      // where the file sits in the full list.
+      auto* action = new QAction(tr("&%1 %2").arg(index + 1).arg(native_path), recent_files_menu_);
+      action->setToolTip(path);
+      action->setData(path);
+      connect(action, &QAction::triggered, this, [this, path] { open_recent_document(path); });
+      recent_files_menu_->addAction(action);
+      recent_files_filtered_actions_ << action;
+    }
+  }
+  if (recent_files_no_matches_action_ != nullptr) {
+    recent_files_no_matches_action_->setVisible(filtering && recent_files_filtered_actions_.isEmpty());
+  }
+  if (recent_files_menu_->isVisible()) {
+    recent_files_menu_->resize(recent_files_menu_->sizeHint());
+  }
+}
+
+bool MainWindow::handle_recent_files_filter_key(QKeyEvent& event) {
+  if (recent_files_menu_ == nullptr) {
+    return false;
+  }
+  switch (event.key()) {
+    case Qt::Key_Up:
+    case Qt::Key_Down:
+    case Qt::Key_PageUp:
+    case Qt::Key_PageDown:
+      // List navigation keeps working while the edit holds focus (the
+      // SearchKeyForwarder pattern from the font picker popup).
+      QApplication::sendEvent(recent_files_menu_, &event);
+      return true;
+    case Qt::Key_Return:
+    case Qt::Key_Enter: {
+      auto* active = recent_files_menu_->activeAction();
+      if (active != nullptr && active->menu() != nullptr) {
+        // Opening the highlighted pages submenu rebuilds nothing; safe to
+        // forward synchronously.
+        QApplication::sendEvent(recent_files_menu_, &event);
+        return true;
+      }
+      QAction* target = nullptr;
+      if (active != nullptr && active->isEnabled() && active != recent_files_filter_action_) {
+        target = active;
+      } else if (!recent_files_filtered_actions_.isEmpty()) {
+        target = recent_files_filtered_actions_.front();
+      }
+      if (target == nullptr) {
+        return true;
+      }
+      // Deferred: triggering synchronously would run rebuild_recent_files_menu
+      // -> menu->clear(), deleting the very edit whose key event is
+      // mid-delivery in the application event filter.
+      QPointer<QAction> guarded(target);
+      recent_files_menu_->close();
+      QTimer::singleShot(0, this, [guarded] {
+        if (guarded != nullptr) {
+          guarded->trigger();
+        }
+      });
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+void MainWindow::load_recent_folders() {
+  auto settings = recent_history_settings();
+  settings.sync();
+  recent_folders_ = settings.value(QStringLiteral("recentFolders")).toStringList();
+  recent_folders_.erase(std::remove_if(recent_folders_.begin(), recent_folders_.end(),
+                                       [](const QString& dir) {
+                                         return dir.trimmed().isEmpty() || !QFileInfo(dir).isDir();
+                                       }),
+                        recent_folders_.end());
+  while (recent_folders_.size() > kMaxRecentFolders) {
+    recent_folders_.removeLast();
+  }
+}
+
+void MainWindow::add_recent_folder(QString dir) {
+  dir = QFileInfo(dir).absoluteFilePath();
+  if (dir.isEmpty()) {
+    return;
+  }
+  recent_folders_ = update_recent_history(QStringLiteral("recentFolders"), kMaxRecentFolders,
+      [&dir](QStringList& paths) { paths.removeAll(dir); paths.prepend(dir); });
+  rebuild_recent_folders_menu();
+}
+
+void MainWindow::rebuild_recent_folders_menu() {
+  if (recent_folders_menu_ == nullptr) {
+    return;
+  }
+  recent_folders_menu_->clear();
+  recent_folders_menu_->setEnabled(!recent_folders_.isEmpty());
+
+  const auto add_recent_folder_action = [this](QMenu* menu, const QString& dir, int index) {
+    const auto label = tr("&%1 %2").arg(index).arg(QDir::toNativeSeparators(dir));
+    auto* action = menu->addAction(label);
+    action->setToolTip(dir);
+    action->setData(dir);
+    connect(action, &QAction::triggered, this, [this, dir] {
+      if (preview_dialog_edit_locked()) {
+        show_preview_dialog_edit_lock_message();
+        return;
+      }
+      const auto start_dir = QFileInfo(dir).isDir() ? dir : last_open_directory();
+      const auto paths = get_open_file_names(this, tr("Open"), start_dir, open_file_filter(), nullptr,
+                                             QStringLiteral("openFileDialog"), FilterNameDetails::Hidden);
+      for (const auto& path : paths) {
+        open_document_path(path);
+      }
+    });
+  };
+
+  const auto recent_count = static_cast<int>(recent_folders_.size());
+  const auto direct_count = std::min(recent_count, kRecentFilesMenuPageSize);
+  for (int index = 0; index < direct_count; ++index) {
+    add_recent_folder_action(recent_folders_menu_, recent_folders_[index], index + 1);
+  }
+
+  if (recent_count > direct_count) {
+    recent_folders_menu_->addSeparator();
+    for (int page_start = direct_count; page_start < recent_count; page_start += kRecentFilesMenuPageSize) {
+      const auto page_end = std::min(page_start + kRecentFilesMenuPageSize, recent_count);
+      auto* page_menu = recent_folders_menu_->addMenu(tr("Recent Folders %1-%2").arg(page_start + 1).arg(page_end));
+      page_menu->setObjectName(QStringLiteral("fileOpenRecentFolderRangeMenu%1").arg(page_start + 1));
+      configure_recent_files_context_menu(page_menu);
+      page_menu->setProperty(kRecentFoldersMenuProperty, true);
+      for (int index = page_start; index < page_end; ++index) {
+        add_recent_folder_action(page_menu, recent_folders_[index], index + 1);
+      }
+    }
+  }
+
+  if (!recent_folders_.isEmpty()) {
+    recent_folders_menu_->addSeparator();
+    auto* clear_action = recent_folders_menu_->addAction(tr("Clear Recent Folders"));
+    clear_action->setObjectName(QStringLiteral("fileClearRecentFoldersAction"));
+    connect(clear_action, &QAction::triggered, this, [this] {
+      recent_folders_ = update_recent_history(QStringLiteral("recentFolders"), kMaxRecentFolders,
+          [](QStringList& paths) { paths.clear(); });
+      rebuild_recent_folders_menu();
+    });
+  }
+}
+
+void MainWindow::configure_recent_files_context_menu(QMenu* menu) {
+  if (menu == nullptr) {
+    return;
+  }
+  menu->setProperty(kRecentFilesMenuProperty, true);
+  menu->setContextMenuPolicy(Qt::CustomContextMenu);
+  menu->installEventFilter(this);
+  connect(menu, &QMenu::customContextMenuRequested, this,
+          [this, menu](const QPoint& position) { show_recent_file_context_menu(menu, position); });
+}
+
+void MainWindow::show_recent_file_context_menu(const QPoint& position) {
+  show_recent_file_context_menu(recent_files_menu_, position);
+}
+
+void MainWindow::show_recent_file_context_menu(QMenu* menu, const QPoint& position) {
+  if (menu == nullptr) {
+    return;
+  }
+
+  const auto* action = menu->actionAt(position);
+  if (action == nullptr || action->isSeparator()) {
+    return;
+  }
+
+  const auto path = action->data().toString();
+  if (path.isEmpty()) {
+    return;
+  }
+
+  const bool is_folder = menu->property(kRecentFoldersMenuProperty).toBool();
+  show_recent_path_context_menu(menu, menu, path, is_folder, menu->mapToGlobal(position));
+}
+
+void MainWindow::show_start_panel_recent_context_menu(const QString& path, const QPoint& global_position) {
+  if (start_panel_ == nullptr || path.isEmpty()) {
+    return;
+  }
+  show_recent_path_context_menu(start_panel_, nullptr, path, /*is_folder=*/false, global_position);
+}
+
+void MainWindow::show_recent_path_context_menu(QWidget* parent, QMenu* source_menu, const QString& path,
+                                               bool is_folder, const QPoint& global_position) {
+  // Only a menu source needs dismissing; a start-panel row leaves nothing open.
+  const auto close_menus = [this, source_menu] {
+    if (source_menu == nullptr) {
+      return;
+    }
+    source_menu->close();
+    if (recent_files_menu_ != nullptr) {
+      recent_files_menu_->close();
+    }
+    if (recent_folders_menu_ != nullptr) {
+      recent_folders_menu_->close();
+    }
+  };
+
+  QMenu context_menu(parent);
+  context_menu.setObjectName(QStringLiteral("recentFileContextMenu"));
+
+  auto* copy_path_action = context_menu.addAction(is_folder ? tr("Copy Folder Path") : tr("Copy File Path"));
+  copy_path_action->setObjectName(is_folder ? QStringLiteral("recentFolderCopyPathAction")
+                                            : QStringLiteral("recentFileCopyPathAction"));
+  connect(copy_path_action, &QAction::triggered, this, [this, close_menus, is_folder, path] {
+    QApplication::clipboard()->setText(QDir::toNativeSeparators(path));
+    statusBar()->showMessage(is_folder ? tr("Folder path copied") : tr("File path copied"));
+    close_menus();
+  });
+
+  auto* open_in_explorer_action = context_menu.addAction(tr("Open in File Explorer"));
+  open_in_explorer_action->setObjectName(is_folder ? QStringLiteral("recentFolderOpenInExplorerAction")
+                                                   : QStringLiteral("recentFileOpenInExplorerAction"));
+  connect(open_in_explorer_action, &QAction::triggered, this, [this, close_menus, is_folder, path] {
+    reveal_path_in_file_explorer(path, !is_folder);
+    close_menus();
+  });
+
+  context_menu.exec(global_position);
+}
+
+void MainWindow::reveal_path_in_file_explorer(const QString& path, bool is_file) {
+  const QFileInfo info(path);
+  if (is_file) {
+    if (!info.exists()) {
+      show_status_error(tr("File is missing"));
+      return;
+    }
+#if defined(Q_OS_WIN)
+    // Open the containing folder with the file pre-selected. "/select," and the
+    // path must stay SEPARATE arguments: QProcess quotes any space-containing
+    // argument whole, and Explorer treats a quoted "/select,path" blob as
+    // unparseable, silently opening the default folder instead.
+    QProcess::startDetached(QStringLiteral("explorer.exe"),
+                            {QStringLiteral("/select,"), QDir::toNativeSeparators(info.absoluteFilePath())});
+#elif defined(Q_OS_MACOS)
+    // open -R reveals the file selected in Finder (a plain folder open loses the selection).
+    QProcess::startDetached(QStringLiteral("open"), {QStringLiteral("-R"), info.absoluteFilePath()});
+#else
+    QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+#endif
+    return;
+  }
+  if (!info.isDir()) {
+    show_status_error(tr("Folder is missing"));
+    return;
+  }
+  QDesktopServices::openUrl(QUrl::fromLocalFile(info.absoluteFilePath()));
+}
+
+void MainWindow::open_recent_document(QString path) {
+  if (!QFileInfo::exists(path)) {
+    recent_files_ = update_recent_history(QStringLiteral("recentFiles"), kMaxRecentFiles,
+        [&path](QStringList& paths) { paths.removeAll(path); });
+    rebuild_recent_files_menu();
+    show_status_error(tr("Recent file is missing"));
+    return;
+  }
+  open_document_path(path);
+}
+
+}  // namespace patchy::ui

@@ -1,0 +1,546 @@
+#include "ui/splash_dialog.hpp"
+
+#include "ui/app_credits.hpp"
+#include "ui/app_settings.hpp"
+#include "ui/build_info.hpp"
+#include "ui/dialog_utils.hpp"
+#include "ui/memory_info.hpp"
+#include "ui/splash_artwork.hpp"
+#include "ui/update_checker.hpp"
+#include "ui/theme_qss.hpp"
+#include "ui/window_effects.hpp"
+
+#include <QDesktopServices>
+#include <QDialog>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QMouseEvent>
+#include <QObject>
+#include <QPoint>
+#include <QCoreApplication>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QPushButton>
+#include <QPointer>
+#include <QProcess>
+#include <QStandardPaths>
+#include <QString>
+#include <QTimer>
+#include <QUrl>
+#include <QVBoxLayout>
+#include <QWidget>
+#include <QWindow>
+
+#include <optional>
+
+#ifndef PATCHY_VERSION
+#define PATCHY_VERSION "0.0.0"
+#endif
+
+namespace patchy::ui {
+namespace {
+
+QString format_memory_mb(qint64 mb) {
+  if (mb >= 1024) {
+    return QObject::tr("%1 GB").arg(static_cast<double>(mb) / 1024.0, 0, 'f', 1);
+  }
+  return QObject::tr("%1 MB").arg(mb);
+}
+
+// Returns false when no probe works on this platform (the caller hides the
+// row). On wasm three numbers matter: allocator-committed bytes ("used"), the
+// linear-memory buffer ("heap", the high-water mark browser tab accounting
+// sees), and the heap ceiling the shell page chose ("limit"); see
+// ui/memory_info.hpp.
+bool refresh_memory_label(QLabel& label) {
+  const auto current = current_process_memory_mb();
+  if (current >= 0) {
+    const auto heap = wasm_heap_reserved_mb();
+    label.setText(heap >= 0 ? QObject::tr("Memory used: %1 (heap %2, limit %3)")
+                                  .arg(format_memory_mb(current), format_memory_mb(heap),
+                                       format_memory_mb(wasm_heap_limit_mb()))
+                            : QObject::tr("Memory used: %1").arg(format_memory_mb(current)));
+    return true;
+  }
+  const auto peak = peak_process_memory_mb();
+  if (peak >= 0) {
+    label.setText(QObject::tr("Memory used (peak): %1").arg(format_memory_mb(peak)));
+    return true;
+  }
+  return false;
+}
+
+#ifdef Q_OS_MACOS
+QString shell_quote(const QString& value) {
+  QString quoted = value;
+  quoted.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+  return QStringLiteral("'") + quoted + QStringLiteral("'");
+}
+
+QString running_application_bundle_path() {
+  QDir bundle_dir(QCoreApplication::applicationDirPath());
+  if (!bundle_dir.cdUp() || !bundle_dir.cdUp()) {
+    return {};
+  }
+  return bundle_dir.absolutePath();
+}
+#endif
+
+// The modal Help > About dialog. Startup no longer shows a splash: the start
+// panel carries the branding and the startup update check lives in MainWindow.
+class PatchySplashDialog final : public QDialog {
+public:
+  explicit PatchySplashDialog(QWidget* parent = nullptr) : QDialog(parent) {
+    setObjectName(QStringLiteral("patchySplashScreen"));
+    setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
+    apply_frameless_window_effects_on_show(*this, WindowCornerRadius::Standard);
+    setModal(true);
+    setFixedSize(650, 435);
+    set_themed_style(*this, QStringLiteral(R"(
+      QDialog#patchySplashScreen {
+        background: @splash_bg;
+        border: 1px solid @splash_border;
+      }
+      QWidget#splashArtwork {
+        /* Transparent, not the global QWidget window_bg: the artwork paints its
+           own card inside a margin, so an opaque fill draws a window-colored
+           rectangle around it on the dialog surface. */
+        background: transparent;
+      }
+      QLabel#splashTitle {
+        color: @splash_title_text;
+        font-size: 32px;
+        font-weight: 800;
+      }
+      QLabel#splashSubtitle {
+        color: @splash_subtitle_text;
+        font-size: 15px;
+      }
+      QLabel#splashCredit {
+        color: @splash_body_text;
+        font-size: 13px;
+      }
+      QLabel#splashMemory {
+        color: @splash_body_text;
+        font-size: 13px;
+      }
+      QLabel#splashContributors {
+        color: @splash_body_text;
+        font-size: 13px;
+      }
+      QLabel#splashHome {
+        color: @splash_body_text;
+        font-size: 13px;
+      }
+      QLabel#splashStatus {
+        color: @splash_status_text;
+        font-size: 12px;
+      }
+      QLabel#splashSettingsCaption {
+        color: @splash_body_text;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      QLabel#splashSettingsPath {
+        color: @splash_caption_text;
+        font-size: 11px;
+      }
+      QPushButton#splashOpenSettingsFolderButton {
+        background: @splash_button_bg;
+        color: @splash_body_text;
+        border: 1px solid @splash_button_border;
+        padding: 5px 12px;
+        min-width: 120px;
+      }
+      QPushButton#splashOpenSettingsFolderButton:hover {
+        background: @splash_button_hover_bg;
+      }
+      QPushButton#splashUpdateButton {
+        background: @splash_button_bg;
+        color: @splash_body_text;
+        border: 1px solid @splash_button_border;
+        padding: 5px 12px;
+        min-width: 92px;
+      }
+      QPushButton#splashUpdateButton:hover {
+        background: @splash_button_hover_bg;
+      }
+      QPushButton#splashCloseButton {
+        background: @splash_primary_bg;
+        color: @text_on_accent;
+        border: 1px solid @splash_primary_border;
+        padding: 5px 18px;
+        min-width: 74px;
+      }
+      QPushButton#splashCloseButton:hover {
+        background: @splash_primary_hover_bg;
+      }
+    )"));
+
+    auto* layout = new QHBoxLayout(this);
+    layout->setContentsMargins(28, 26, 30, 24);
+    layout->setSpacing(28);
+
+    auto* artwork = new SplashArtwork(this);
+    artwork->setObjectName(QStringLiteral("splashArtwork"));
+    artwork->setFixedSize(210, 270);
+    layout->addWidget(artwork);
+
+    auto* copy = new QVBoxLayout();
+    copy->setContentsMargins(0, 12, 0, 6);
+    copy->setSpacing(10);
+    layout->addLayout(copy, 1);
+
+    auto* title = new QLabel(QObject::tr("MyAIPs Image Editor"), this);
+    title->setObjectName(QStringLiteral("splashTitle"));
+    title->setTextFormat(Qt::PlainText);
+    copy->addWidget(title);
+
+    auto* subtitle = new QLabel(QObject::tr("Open source photo editing. Free forever, no subscriptions."), this);
+    subtitle->setObjectName(QStringLiteral("splashSubtitle"));
+    subtitle->setTextFormat(Qt::PlainText);
+    subtitle->setWordWrap(true);
+    copy->addWidget(subtitle);
+
+    auto* divider = new QFrame(this);
+    divider->setFrameShape(QFrame::HLine);
+    set_themed_style(*divider, QStringLiteral("color: @splash_border; background: @splash_border;"));
+    copy->addWidget(divider);
+
+    auto* version = new QLabel(
+        QObject::tr("Version %1 (built %2)").arg(QStringLiteral(PATCHY_VERSION), build_timestamp_text()), this);
+    version->setObjectName(QStringLiteral("splashCredit"));
+    version->setTextFormat(Qt::PlainText);
+    copy->addWidget(version);
+
+    auto* credit = new QLabel(QObject::tr("MyAIPs - Created by ddxmu"), this);
+    credit->setObjectName(QStringLiteral("splashCredit"));
+    credit->setTextFormat(Qt::PlainText);
+    copy->addWidget(credit);
+
+    auto add_home_link = [this, copy](const QString& text) {
+      auto* label = new QLabel(this);
+      label->setObjectName(QStringLiteral("splashHome"));
+      label->setTextFormat(Qt::RichText);
+      label->setTextInteractionFlags(Qt::TextBrowserInteraction);
+      label->setOpenExternalLinks(true);
+      set_themed_label_text(*label, text);
+      copy->addWidget(label);
+    };
+    const auto github_link = my_aips_project_link_html(QStringLiteral("@splash_link_text"));
+    add_home_link(QObject::tr("GitHub: %1").arg(github_link));
+    const auto my_aips_site_link = QStringLiteral("<a style=\"color:@splash_link_text; text-decoration:none;\" "
+                                                  "href=\"https://ddxmu.com\">ddxmu.com</a>");
+    add_home_link(QObject::tr("Website: %1").arg(my_aips_site_link));
+
+#ifndef Q_OS_WASM
+    // The wasm settings store is window.localStorage, so there is no settings
+    // file to display and no folder a file manager could open.
+    auto settings = app_settings();
+    const auto settings_file_path = settings.fileName();
+    const QFileInfo settings_file_info(settings_file_path);
+    const auto settings_dir_path = settings_file_info.absolutePath();
+
+    auto* settings_caption = new QLabel(QObject::tr("Settings file:"), this);
+    settings_caption->setObjectName(QStringLiteral("splashSettingsCaption"));
+    settings_caption->setTextFormat(Qt::PlainText);
+    copy->addWidget(settings_caption);
+
+    auto* settings_path = new QLabel(QDir::toNativeSeparators(settings_file_path), this);
+    settings_path->setObjectName(QStringLiteral("splashSettingsPath"));
+    settings_path->setTextFormat(Qt::PlainText);
+    settings_path->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    settings_path->setWordWrap(true);
+    copy->addWidget(settings_path);
+
+    auto* settings_button_row = new QHBoxLayout();
+    settings_button_row->setContentsMargins(0, 0, 0, 0);
+    auto* open_settings_folder = new QPushButton(QObject::tr("Open Settings Folder"), this);
+    open_settings_folder->setObjectName(QStringLiteral("splashOpenSettingsFolderButton"));
+    connect(open_settings_folder, &QPushButton::clicked, this, [this, settings_dir_path] {
+      if (settings_dir_path.isEmpty() || !QDir().mkpath(settings_dir_path) ||
+          !QDesktopServices::openUrl(QUrl::fromLocalFile(settings_dir_path))) {
+        auto* status = findChild<QLabel*>(QStringLiteral("splashStatus"));
+        if (status != nullptr) {
+          status->setText(QObject::tr("Could not open settings folder."));
+        }
+      }
+    });
+    settings_button_row->addWidget(open_settings_folder, 0);
+    settings_button_row->addStretch(1);
+    copy->addLayout(settings_button_row);
+#endif
+
+    // Live memory readout, mainly for the wasm build where the heap ceiling is
+    // what decides whether Safari keeps the tab alive.
+    auto* memory = new QLabel(this);
+    memory->setObjectName(QStringLiteral("splashMemory"));
+    memory->setTextFormat(Qt::PlainText);
+    if (refresh_memory_label(*memory)) {
+      auto* memory_timer = new QTimer(this);
+      memory_timer->setInterval(1000);
+      connect(memory_timer, &QTimer::timeout, memory,
+              [memory] { refresh_memory_label(*memory); });
+      memory_timer->start();
+    } else {
+      memory->hide();
+    }
+    copy->addWidget(memory);
+
+    copy->addStretch(1);
+
+    auto* bottom = new QHBoxLayout();
+    bottom->setContentsMargins(0, 0, 0, 0);
+    bottom->setSpacing(12);
+    copy->addLayout(bottom);
+
+    status_ = new QLabel(QObject::tr("MyAIPs is ready."), this);
+    status_->setObjectName(QStringLiteral("splashStatus"));
+    status_->setTextFormat(Qt::PlainText);
+    status_->setWordWrap(true);
+    bottom->addWidget(status_, 1);
+
+    update_button_ = new QPushButton(QObject::tr("Check for Updates"), this);
+    update_button_->setObjectName(QStringLiteral("splashUpdateButton"));
+#ifndef Q_OS_WASM
+    connect(update_button_, &QPushButton::clicked, this, [this] {
+      if (latest_update_.has_value()) {
+        download_and_install(*latest_update_);
+      } else {
+        begin_update_check();
+      }
+    });
+#else
+    update_button_->setEnabled(false);
+#endif
+    bottom->addWidget(update_button_, 0);
+
+    auto* close = new QPushButton(QObject::tr("Close"), this);
+    close->setObjectName(QStringLiteral("splashCloseButton"));
+    connect(close, &QPushButton::clicked, this, &QDialog::accept);
+    bottom->addWidget(close, 0);
+  }
+
+#ifndef Q_OS_WASM
+  void begin_update_check() {
+    if (update_reply_ != nullptr) {
+      return;
+    }
+    latest_update_.reset();
+    if (update_button_ != nullptr) {
+      update_button_->setEnabled(false);
+      update_button_->setText(QObject::tr("Checking..."));
+    }
+    set_status(QObject::tr("Checking for updates..."));
+    const QPointer<PatchySplashDialog> dialog_guard(this);
+    request_update_check(this, QStringLiteral(PATCHY_VERSION), [dialog_guard](UpdateCheckResult result) {
+      if (dialog_guard != nullptr) {
+        dialog_guard->latest_update_ = result.update;
+        dialog_guard->set_status(update_check_status_text(result));
+        if (dialog_guard->update_button_ != nullptr) {
+          dialog_guard->update_button_->setEnabled(true);
+          dialog_guard->update_button_->setText(result.update.has_value()
+                                                     ? QObject::tr("Update Now")
+                                                     : QObject::tr("Check for Updates"));
+        }
+      }
+    });
+  }
+
+  void download_and_install(const UpdateInfo& update) {
+    if (update_reply_ != nullptr) {
+      return;
+    }
+    const auto temp_dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    if (temp_dir.isEmpty()) {
+      set_status(QObject::tr("Could not find a temporary folder for the update."));
+      return;
+    }
+    QDir().mkpath(temp_dir);
+    download_path_ = QDir(temp_dir).filePath(QStringLiteral("MyAIPs-update-%1.dmg").arg(update.version));
+    download_file_.setFileName(download_path_);
+    if (!download_file_.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+      set_status(QObject::tr("Could not prepare the update download."));
+      return;
+    }
+    update_button_->setEnabled(false);
+    update_button_->setText(QObject::tr("Downloading..."));
+    set_status(QObject::tr("Downloading MyAIPs %1...").arg(update.version));
+    QNetworkRequest request(update.download_url);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setTransferTimeout(120000);
+    auto* reply = update_network_->get(request);
+    update_reply_ = reply;
+    const QPointer<PatchySplashDialog> dialog_guard(this);
+    connect(reply, &QNetworkReply::readyRead, this, [dialog_guard, reply] {
+      if (dialog_guard != nullptr) {
+        dialog_guard->download_file_.write(reply->readAll());
+      }
+    });
+    connect(reply, &QNetworkReply::downloadProgress, this, [dialog_guard](qint64 received, qint64 total) {
+      if (dialog_guard == nullptr || total <= 0) {
+        return;
+      }
+      dialog_guard->set_status(QObject::tr("Downloading MyAIPs %1 (%2%%)...")
+                                .arg(dialog_guard->latest_update_.has_value()
+                                         ? dialog_guard->latest_update_->version
+                                         : QStringLiteral(PATCHY_VERSION))
+                                .arg((received * 100) / total));
+    });
+    connect(reply, &QNetworkReply::finished, this, [dialog_guard, reply] {
+      if (dialog_guard == nullptr) {
+        reply->deleteLater();
+        return;
+      }
+      dialog_guard->download_file_.write(reply->readAll());
+      dialog_guard->download_file_.close();
+      const auto error = reply->error();
+      const auto status_code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+      reply->deleteLater();
+      dialog_guard->update_reply_ = nullptr;
+      if (error != QNetworkReply::NoError || status_code < 200 || status_code >= 300 ||
+          QFileInfo(dialog_guard->download_path_).size() <= 0) {
+        QFile::remove(dialog_guard->download_path_);
+        dialog_guard->update_button_->setEnabled(true);
+        dialog_guard->update_button_->setText(QObject::tr("Check for Updates"));
+        dialog_guard->set_status(QObject::tr("Update download failed: %1")
+                                      .arg(error == QNetworkReply::NoError
+                                               ? QObject::tr("HTTP %1").arg(status_code)
+                                               : reply->errorString()));
+        return;
+      }
+      dialog_guard->install_downloaded_update();
+    });
+  }
+
+  void install_downloaded_update() {
+#ifdef Q_OS_MACOS
+    const auto app_bundle = running_application_bundle_path();
+    if (app_bundle.isEmpty()) {
+      QDesktopServices::openUrl(QUrl::fromLocalFile(download_path_));
+      set_status(QObject::tr("The update was downloaded. Open the DMG to install it."));
+      update_button_->setEnabled(true);
+      return;
+    }
+    const auto temp_dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    const auto script_path = QDir(temp_dir).filePath(QStringLiteral("MyAIPs-update.sh"));
+    QFile script(script_path);
+    if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+      set_status(QObject::tr("Could not prepare the automatic installer."));
+      update_button_->setEnabled(true);
+      return;
+    }
+    const auto pid = QString::number(QCoreApplication::applicationPid());
+    const auto script_text = QStringLiteral(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "DMG=%1\n"
+        "PID=%2\n"
+        "DEST=%3\n"
+        "MOUNT=$(mktemp -d \"${TMPDIR:-/tmp}/MyAIPsMount.XXXXXX\")\n"
+        "cleanup() { hdiutil detach \"$MOUNT\" >/dev/null 2>&1 || true; rm -rf \"$MOUNT\"; rm -f \"$DMG\" \"$0\"; }\n"
+        "while kill -0 \"$PID\" >/dev/null 2>&1; do sleep 1; done\n"
+        "hdiutil attach \"$DMG\" -nobrowse -readonly -mountpoint \"$MOUNT\" >/dev/null\n"
+        "SOURCE=\"$MOUNT/MyAIPs.app\"\n"
+        "if [ ! -d \"$SOURCE\" ]; then cleanup; exit 1; fi\n"
+        "STAGED=\"$(dirname \"$DEST\")/.MyAIPs.app.update\"\n"
+        "rm -rf \"$STAGED\"\n"
+        "ditto \"$SOURCE\" \"$STAGED\"\n"
+        "rm -rf \"$DEST\"\n"
+        "mv \"$STAGED\" \"$DEST\"\n"
+        "cleanup\n"
+        "open \"$DEST\"\n")
+        .arg(shell_quote(download_path_), shell_quote(pid), shell_quote(app_bundle));
+    script.write(script_text.toUtf8());
+    script.close();
+    script.setPermissions(script.permissions() | QFileDevice::ExeOwner | QFileDevice::ExeGroup |
+                          QFileDevice::ExeOther);
+    if (!QProcess::startDetached(QStringLiteral("/bin/sh"), {script_path})) {
+      set_status(QObject::tr("Could not start the automatic installer."));
+      update_button_->setEnabled(true);
+      return;
+    }
+    set_status(QObject::tr("Update downloaded. MyAIPs will restart to finish installation."));
+    QCoreApplication::quit();
+#else
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(download_path_))) {
+      set_status(QObject::tr("The update was downloaded, but could not be opened."));
+      update_button_->setEnabled(true);
+      return;
+    }
+    set_status(QObject::tr("The update was downloaded. Finish installation from the opened package."));
+    update_button_->setEnabled(true);
+#endif
+  }
+#endif
+
+  void set_status(const QString& text) {
+    if (status_ != nullptr) {
+      status_->setText(text);
+    }
+  }
+
+protected:
+  // Frameless, so there is no title bar to grab; dragging any non-interactive
+  // area moves the dialog instead. Only presses that no child widget consumed
+  // reach these handlers, so the links and buttons keep working.
+  void mousePressEvent(QMouseEvent* event) override {
+    if (event->button() == Qt::LeftButton) {
+      drag_position_ = event->globalPosition().toPoint() - frameGeometry().topLeft();
+      dragging_ = true;
+      if (auto* handle = windowHandle(); handle != nullptr && handle->startSystemMove()) {
+        dragging_ = false;
+      }
+      event->accept();
+      return;
+    }
+    QDialog::mousePressEvent(event);
+  }
+
+  void mouseMoveEvent(QMouseEvent* event) override {
+    if (dragging_ && (event->buttons() & Qt::LeftButton) != 0) {
+      move(event->globalPosition().toPoint() - drag_position_);
+      event->accept();
+      return;
+    }
+    QDialog::mouseMoveEvent(event);
+  }
+
+  void mouseReleaseEvent(QMouseEvent* event) override {
+    dragging_ = false;
+    QDialog::mouseReleaseEvent(event);
+  }
+
+private:
+  QLabel* status_{nullptr};
+  QPushButton* update_button_{nullptr};
+  QNetworkAccessManager* update_network_{new QNetworkAccessManager(this)};
+  QPointer<QNetworkReply> update_reply_;
+  QFile download_file_;
+  QString download_path_;
+  std::optional<UpdateInfo> latest_update_;
+  bool dragging_{false};
+  QPoint drag_position_;
+};
+
+}  // namespace
+
+void show_about_splash(QWidget* parent) {
+  PatchySplashDialog splash(parent);
+#ifndef Q_OS_WASM
+  // The web build always runs the latest deployed site, so there is no update
+  // to check for; the status label keeps its "Patchy is ready." text.
+  splash.begin_update_check();
+#endif
+  // exec_dialog centers the dialog on its owner clamped to the screen (a raw
+  // parent-centered move could push the Close button below a low main window)
+  // and remembers a position the user dragged it to.
+  exec_dialog(splash);
+}
+
+}  // namespace patchy::ui

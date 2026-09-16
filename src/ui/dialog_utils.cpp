@@ -1,0 +1,1701 @@
+#include "ui/dialog_utils.hpp"
+
+#include "ui/app_settings.hpp"
+#include "ui/main_window.hpp"
+
+#include "ui/action_icons.hpp"
+#include "ui/theme_qss.hpp"
+#include "ui/window_effects.hpp"
+
+#ifdef Q_OS_WASM
+#include "ui/dialog_utils_wasm.hpp"
+#endif
+
+#include <QAbstractButton>
+#include <QAbstractSpinBox>
+#include <QAction>
+#include <QApplication>
+#include <QComboBox>
+#include <QCursor>
+#include <QDialog>
+#include <QDoubleSpinBox>
+#include <QDir>
+#include <QElapsedTimer>
+#include <QEvent>
+#include <QEventLoop>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFormLayout>
+#include <QFrame>
+#include <QGuiApplication>
+#include <QHash>
+#include <QHBoxLayout>
+#include <QIcon>
+#include <QKeyEvent>
+#include <QLabel>
+#include <QLayout>
+#include <QLineEdit>
+#include <QMainWindow>
+#include <QMenu>
+#include <QMessageBox>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPixmap>
+#include <QPointer>
+#include <QTimer>
+#include <QPolygonF>
+#include <QPushButton>
+#include <QScopeGuard>
+#include <QScreen>
+#include <QScrollArea>
+#include <QSettings>
+#include <QSize>
+#include <QSlider>
+#include <QSpinBox>
+#include <QString>
+#include <QStringList>
+#include <QStyle>
+#include <QTabBar>
+#include <QTabWidget>
+#include <QToolButton>
+#include <QVariant>
+#include <QVBoxLayout>
+#include <QWidget>
+#include <QWindow>
+
+#include <algorithm>
+#include <cmath>
+#include <exception>
+#include <limits>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+namespace patchy::ui {
+
+namespace {
+
+constexpr auto kDialogPositionMemoryInstalledProperty = "patchy.dialogPositionMemoryInstalled";
+constexpr auto kDialogPositionMemoryIdProperty = "patchy.dialogPositionMemoryId";
+
+constexpr int kChevronAreaWidth = 14;
+
+QIcon dialog_close_icon() {
+  // Ink follows the scheme: this X sits on the dialog's own title bar, which
+  // Light turns pale, and a baked near-white cross would vanish there.
+  return themed_glyph_icon(QStringLiteral("dialog-close"), 32.0, &ThemePalette::text_bright,
+                           [](QPainter& painter, const QColor& ink) {
+                             painter.setPen(QPen(ink, 2.0, Qt::SolidLine, Qt::SquareCap,
+                                                 Qt::MiterJoin));
+                             painter.drawLine(QPointF(10.0, 10.0), QPointF(22.0, 22.0));
+                             painter.drawLine(QPointF(22.0, 10.0), QPointF(10.0, 22.0));
+                           });
+}
+
+QIcon compact_symbol_icon(const QString& symbol) {
+  const bool plus = symbol == QStringLiteral("+");
+  return themed_glyph_icon(plus ? QStringLiteral("compact-plus") : QStringLiteral("compact-minus"),
+                           32.0, &ThemePalette::text_bright,
+                           [plus](QPainter& painter, const QColor& ink) {
+                             painter.setPen(QPen(ink, 4.0, Qt::SolidLine, Qt::SquareCap,
+                                                 Qt::MiterJoin));
+                             painter.drawLine(QPointF(8.0, 16.0), QPointF(24.0, 16.0));
+                             if (plus) {
+                               painter.drawLine(QPointF(16.0, 8.0), QPointF(16.0, 24.0));
+                             }
+                           });
+}
+
+class NumericPopupChevron final : public QWidget {
+public:
+  NumericPopupChevron(QAction* action, QWidget* parent)
+      : QWidget(parent), action_(action) {
+    setCursor(Qt::PointingHandCursor);
+    setToolTip(action_->text());
+  }
+
+protected:
+  void paintEvent(QPaintEvent* event) override {
+    Q_UNUSED(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    const auto group = isEnabled() ? QPalette::Active : QPalette::Disabled;
+    auto pen = QPen(palette().color(group, QPalette::Text));
+    pen.setWidthF(1.4);
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+    painter.setPen(pen);
+    const auto center_x = static_cast<qreal>(width()) / 2.0 - 0.5;
+    const auto center_y = static_cast<qreal>(height()) / 2.0;
+    painter.drawPolyline(QPolygonF{QPointF(center_x - 3.0, center_y - 1.5),
+                                  QPointF(center_x, center_y + 1.5),
+                                  QPointF(center_x + 3.0, center_y - 1.5)});
+  }
+
+  void mousePressEvent(QMouseEvent* event) override {
+    if (event->button() == Qt::LeftButton) {
+      action_->trigger();
+      event->accept();
+      return;
+    }
+    QWidget::mousePressEvent(event);
+  }
+
+private:
+  QAction* action_;
+};
+
+template <typename SpinBox>
+class NumericPopupController final : public QObject {
+public:
+  explicit NumericPopupController(SpinBox* spin)
+      : QObject(spin), spin_(spin) {
+    popup_clock_.start();
+    base_name_ = spin_->objectName();
+    if (base_name_.endsWith(QStringLiteral("Spin"))) {
+      base_name_.chop(4);
+    } else {
+      base_name_ += QStringLiteral("Value");
+    }
+
+    action_ = new QAction(QObject::tr("Open value slider"), spin_);
+    action_->setObjectName(base_name_ + QStringLiteral("PopupAction"));
+    spin_->addAction(action_);
+    QObject::connect(action_, &QAction::triggered, this,
+                     [this] { show_popup(); });
+
+    editor_ = spin_->template findChild<QLineEdit*>();
+    Q_ASSERT(editor_ != nullptr);
+    const auto margins = editor_->textMargins();
+    editor_->setTextMargins(margins.left(), margins.top(),
+                            margins.right() + kChevronAreaWidth,
+                            margins.bottom());
+    chevron_ = new NumericPopupChevron(action_, editor_);
+    chevron_->setObjectName(base_name_ + QStringLiteral("PopupButton"));
+    spin_->installEventFilter(this);
+    editor_->installEventFilter(this);
+    update_chevron_geometry();
+  }
+
+protected:
+  bool eventFilter(QObject* watched, QEvent* event) override {
+    if (watched == spin_) {
+      if (event->type() == QEvent::MouseButtonPress) {
+        const auto* mouse_event = static_cast<QMouseEvent*>(event);
+        if (mouse_event->button() == Qt::LeftButton &&
+            mouse_event->position().x() >= spin_->width() - kChevronAreaWidth) {
+          action_->trigger();
+          return true;
+        }
+      } else if (event->type() == QEvent::LanguageChange) {
+        action_->setText(QObject::tr("Open value slider"));
+        chevron_->setToolTip(action_->text());
+      }
+    }
+    if (watched == editor_) {
+      if (event->type() == QEvent::Resize || event->type() == QEvent::Show) {
+        update_chevron_geometry();
+      } else if (event->type() == QEvent::MouseButtonPress) {
+        const auto* mouse_event = static_cast<QMouseEvent*>(event);
+        if (mouse_event->button() == Qt::LeftButton &&
+            mouse_event->position().x() >=
+                editor_->width() - kChevronAreaWidth) {
+          action_->trigger();
+          return true;
+        }
+      }
+    }
+    return QObject::eventFilter(watched, event);
+  }
+
+private:
+  void update_chevron_geometry() {
+    if (chevron_ == nullptr) {
+      return;
+    }
+    const auto editor_rect = editor_->rect();
+    chevron_->setGeometry(editor_rect.right() - kChevronAreaWidth + 1,
+                          editor_rect.top(), kChevronAreaWidth,
+                          editor_rect.height());
+    chevron_->raise();
+  }
+
+  std::vector<double> quick_values() const {
+    const double minimum = spin_->minimum();
+    const double maximum = spin_->maximum();
+    std::vector<double> candidates;
+    if (spin_->suffix().trimmed() == QStringLiteral("%") && minimum >= 0.0 &&
+        maximum <= 100.0) {
+      candidates = minimum <= 0.0
+                       ? std::vector<double>{0, 10, 25, 50, 75, 100}
+                       : std::vector<double>{1, 5, 10, 25, 50, 75, 100};
+    } else if (base_name_ == QStringLiteral("brushSize")) {
+      candidates = {1, 5, 10, 25, 50, 100, 250};
+    } else if (base_name_ == QStringLiteral("textSize")) {
+      candidates = {8, 10, 12, 18, 24, 36, 72};
+    } else if (maximum - minimum <= 10.0) {
+      for (int value = static_cast<int>(std::ceil(minimum));
+           value <= static_cast<int>(std::floor(maximum)); ++value) {
+        candidates.push_back(value);
+      }
+    } else if (maximum <= 100.0) {
+      candidates = {minimum, 25, 50, 75, maximum};
+    } else if (maximum <= 1024.0) {
+      candidates = {minimum, 25, 50, 100, 250, maximum};
+    } else {
+      candidates = {minimum, 100, 1000, 5000, maximum};
+    }
+
+    std::vector<double> result;
+    for (const auto candidate : candidates) {
+      if (candidate < minimum || candidate > maximum) {
+        continue;
+      }
+      if (result.empty() || std::abs(result.back() - candidate) > 0.0001) {
+        result.push_back(candidate);
+      }
+    }
+    return result;
+  }
+
+  QString quick_label(double value) const {
+    const int decimals = [&] {
+      if constexpr (std::is_same_v<SpinBox, QDoubleSpinBox>) {
+        return spin_->decimals();
+      } else {
+        return 0;
+      }
+    }();
+    auto number = QString::number(value, 'f', decimals);
+    if (decimals > 0) {
+      while (number.endsWith(QLatin1Char('0'))) {
+        number.chop(1);
+      }
+      if (number.endsWith(QLatin1Char('.'))) {
+        number.chop(1);
+      }
+    }
+    return number + spin_->suffix();
+  }
+
+  QString quick_object_token(double value) const {
+    auto token = QString::number(value, 'f', 3);
+    while (token.endsWith(QLatin1Char('0'))) {
+      token.chop(1);
+    }
+    if (token.endsWith(QLatin1Char('.'))) {
+      token.chop(1);
+    }
+    token.replace(QLatin1Char('-'), QStringLiteral("Minus"));
+    token.replace(QLatin1Char('.'), QStringLiteral("Point"));
+    return token;
+  }
+
+  void show_popup() {
+    if (popup_ != nullptr) {
+      popup_->close();
+      return;
+    }
+    if (popup_dismissed_ms_ >= 0 &&
+        popup_clock_.elapsed() - popup_dismissed_ms_ < 300) {
+      popup_dismissed_ms_ = -1;
+      return;
+    }
+
+    auto* popup = new QFrame(spin_, Qt::Popup);
+    popup->setAttribute(Qt::WA_DeleteOnClose);
+    popup->setObjectName(base_name_ + QStringLiteral("Popup"));
+    popup->setFrameShape(QFrame::StyledPanel);
+    popup_ = popup;
+    QObject::connect(popup, &QObject::destroyed, this, [this] {
+      if (editor_->rect().contains(
+              editor_->mapFromGlobal(QCursor::pos()))) {
+        popup_dismissed_ms_ = popup_clock_.elapsed();
+      }
+    });
+
+    auto* layout = new QVBoxLayout(popup);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(6);
+    auto* slider = new QSlider(Qt::Horizontal, popup);
+    slider->setObjectName(base_name_ + QStringLiteral("PopupSlider"));
+    slider->setMinimumWidth(220);
+    layout->addWidget(slider);
+
+    const double slider_maximum = [this] {
+      double maximum = static_cast<double>(spin_->maximum());
+      const auto cap = spin_->property(kToolbarSpinboxSliderMaxProperty);
+      bool cap_valid = false;
+      if (const double cap_value = cap.toDouble(&cap_valid); cap_valid) {
+        maximum = std::min(maximum, cap_value);
+      }
+      return std::max(maximum, static_cast<double>(spin_->value()));
+    }();
+
+    if constexpr (std::is_same_v<SpinBox, QSpinBox>) {
+      const int maximum = static_cast<int>(std::lround(slider_maximum));
+      slider->setRange(spin_->minimum(), maximum);
+      slider->setPageStep(std::max(1, (maximum - spin_->minimum()) / 20));
+      slider->setValue(spin_->value());
+      QObject::connect(slider, &QSlider::valueChanged, spin_,
+                       &QSpinBox::setValue);
+      QObject::connect(spin_, &QSpinBox::valueChanged, popup,
+                       [slider](int new_value) {
+                         const QSignalBlocker blocker(slider);
+                         slider->setValue(new_value);
+                       });
+    } else {
+      const int decimal_places = std::clamp(spin_->decimals(), 0, 3);
+      const double scale = std::pow(10.0, decimal_places);
+      const auto scaled = [scale](double value) {
+        return static_cast<int>(std::clamp(
+            static_cast<long long>(std::lround(value * scale)),
+            static_cast<long long>(std::numeric_limits<int>::min()),
+            static_cast<long long>(std::numeric_limits<int>::max())));
+      };
+      slider->setRange(scaled(spin_->minimum()), scaled(slider_maximum));
+      slider->setPageStep(
+          std::max(1, (slider->maximum() - slider->minimum()) / 20));
+      slider->setValue(scaled(spin_->value()));
+      QObject::connect(slider, &QSlider::valueChanged, spin_,
+                       [spin = spin_, scale](int new_value) {
+                         spin->setValue(static_cast<double>(new_value) / scale);
+                       });
+      QObject::connect(spin_, &QDoubleSpinBox::valueChanged, popup,
+                       [slider, scaled](double new_value) {
+                         const QSignalBlocker blocker(slider);
+                         slider->setValue(scaled(new_value));
+                       });
+    }
+
+    const auto choices = quick_values();
+    if (!choices.empty()) {
+      auto* quick_row = new QHBoxLayout();
+      quick_row->setContentsMargins(0, 0, 0, 0);
+      quick_row->setSpacing(3);
+      for (const auto quick_value : choices) {
+        const auto label = quick_label(quick_value);
+        auto* button = new QPushButton(label, popup);
+        button->setObjectName(base_name_ + QStringLiteral("Quick") +
+                              quick_object_token(quick_value));
+        button->setFixedWidth(
+            std::clamp(button->fontMetrics().horizontalAdvance(label) + 16,
+                       38, 78));
+        button->setFixedHeight(24);
+        quick_row->addWidget(button);
+        QObject::connect(button, &QPushButton::clicked, spin_,
+                         [spin = spin_, quick_value] {
+                           spin->setValue(quick_value);
+                         });
+      }
+      layout->addLayout(quick_row);
+    }
+
+    popup->adjustSize();
+    position_popup_below(*spin_, *popup);
+    popup->show();
+    slider->setFocus(Qt::PopupFocusReason);
+  }
+
+  SpinBox* spin_;
+  QString base_name_;
+  QAction* action_{nullptr};
+  QLineEdit* editor_{nullptr};
+  NumericPopupChevron* chevron_{nullptr};
+  QPointer<QFrame> popup_{};
+  QElapsedTimer popup_clock_{};
+  qint64 popup_dismissed_ms_{-1};
+};
+
+template <typename SpinBox>
+void install_numeric_popup(SpinBox* spin) {
+  constexpr auto kInstalledProperty = "patchy.numericPopupInstalled";
+  if (spin->property(kInstalledProperty).toBool()) {
+    return;
+  }
+  spin->setProperty(kInstalledProperty, true);
+  new NumericPopupController<SpinBox>(spin);
+}
+
+ThemedQss dialog_chrome_style() {
+  return ThemedQss(QStringLiteral(R"(
+    QDialog {
+      background: @window_bg;
+      color: @text_primary;
+      border: 1px solid @window_border;
+    }
+    QWidget#dialogChromeTitleBar {
+      background: @title_bar_bg;
+      border-bottom: 1px solid @title_bar_border;
+      min-height: 34px;
+      max-height: 34px;
+    }
+    QLabel#dialogChromePatchyBadge {
+      background: transparent;
+      border: 0;
+    }
+    QLabel#dialogChromeTitleLabel {
+      background: transparent;
+      color: @text_bright;
+      font-weight: 600;
+    }
+    QWidget#dialogChromeContent {
+      background: @window_bg;
+    }
+    QToolButton#dialogChromeCloseButton {
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      min-width: 46px;
+      max-width: 46px;
+      min-height: 34px;
+      max-height: 34px;
+    }
+    QToolButton#dialogChromeCloseButton:hover {
+      background: @window_close_hover_bg;
+      border: 0;
+    }
+    QToolButton#dialogChromeCloseButton:pressed {
+      background: @window_close_pressed_bg;
+    }
+    QPushButton[compactSymbolButton="true"] {
+      padding: 0;
+      min-width: 22px;
+      max-width: 22px;
+      min-height: 22px;
+      max-height: 22px;
+    }
+  )"));
+}
+
+class DialogChromeDragFilter final : public QObject {
+public:
+  explicit DialogChromeDragFilter(QDialog& dialog, QObject* parent) : QObject(parent), dialog_(dialog) {}
+
+protected:
+  bool eventFilter(QObject* watched, QEvent* event) override {
+    Q_UNUSED(watched);
+    switch (event->type()) {
+      case QEvent::MouseButtonPress: {
+        auto* mouse_event = static_cast<QMouseEvent*>(event);
+        if (mouse_event->button() == Qt::LeftButton) {
+          drag_position_ = mouse_event->globalPosition().toPoint() - dialog_.frameGeometry().topLeft();
+          dragging_ = true;
+          if (auto* handle = dialog_.windowHandle(); handle != nullptr && handle->startSystemMove()) {
+            dragging_ = false;
+          }
+          mouse_event->accept();
+          return true;
+        }
+        break;
+      }
+      case QEvent::MouseMove: {
+        auto* mouse_event = static_cast<QMouseEvent*>(event);
+        if (dragging_ && (mouse_event->buttons() & Qt::LeftButton) != 0) {
+          if (!dialog_.isMaximized() && !dialog_.isFullScreen()) {
+            dialog_.move(mouse_event->globalPosition().toPoint() - drag_position_);
+          }
+          mouse_event->accept();
+          return true;
+        }
+        break;
+      }
+      case QEvent::MouseButtonRelease:
+        dragging_ = false;
+        break;
+      default:
+        break;
+    }
+    return QObject::eventFilter(watched, event);
+  }
+
+private:
+  QDialog& dialog_;
+  bool dragging_{false};
+  QPoint drag_position_;
+};
+
+QString dialog_position_group(const QDialog& dialog) {
+  auto id = dialog.property(kDialogPositionMemoryIdProperty).toString();
+  if (id.isEmpty()) {
+    id = dialog.objectName();
+  }
+  if (id.isEmpty()) {
+    return {};
+  }
+  return QStringLiteral("dialogPositions/%1").arg(id);
+}
+
+QString dialog_position_key(const QDialog& dialog) {
+  const auto group = dialog_position_group(dialog);
+  return group.isEmpty() ? QString() : group + QStringLiteral("/pos");
+}
+
+QString dialog_position_moved_key(const QDialog& dialog) {
+  const auto group = dialog_position_group(dialog);
+  return group.isEmpty() ? QString() : group + QStringLiteral("/moved");
+}
+
+QSize dialog_placement_size(const QDialog& dialog) {
+  auto size = dialog.testAttribute(Qt::WA_Resized) ? dialog.size() : dialog.sizeHint();
+  if (!size.isValid() || size.isEmpty()) {
+    size = dialog.size();
+  }
+  if (!size.isValid() || size.isEmpty()) {
+    size = QSize(320, 200);
+  }
+  return size;
+}
+
+QRect dialog_owner_geometry(const QDialog& dialog) {
+  if (auto* parent = dialog.parentWidget(); parent != nullptr) {
+    if (auto* owner = parent->window(); owner != nullptr && owner != &dialog && owner->frameGeometry().isValid()) {
+      return owner->frameGeometry();
+    }
+    if (parent->frameGeometry().isValid()) {
+      return parent->frameGeometry();
+    }
+  }
+
+  if (auto* active = QApplication::activeWindow();
+      active != nullptr && active != &dialog && active->frameGeometry().isValid()) {
+    return active->frameGeometry();
+  }
+
+  if (auto* screen = QGuiApplication::primaryScreen(); screen != nullptr) {
+    return screen->availableGeometry();
+  }
+  return QRect(0, 0, 640, 480);
+}
+
+QPoint clamped_dialog_position(const QDialog& dialog, QPoint position) {
+  const auto size = dialog_placement_size(dialog);
+  QScreen* screen = QGuiApplication::screenAt(position + QPoint(size.width() / 2, size.height() / 2));
+  if (screen == nullptr && dialog.parentWidget() != nullptr) {
+    screen = dialog.parentWidget()->screen();
+  }
+  if (screen == nullptr) {
+    screen = QGuiApplication::primaryScreen();
+  }
+  if (screen == nullptr) {
+    return position;
+  }
+
+  const QRect available = screen->availableGeometry();
+  const auto dialog_width = std::min(size.width(), available.width());
+  const auto dialog_height = std::min(size.height(), available.height());
+  const auto max_x = available.left() + std::max(0, available.width() - dialog_width);
+  const auto max_y = available.top() + std::max(0, available.height() - dialog_height);
+  return QPoint(std::clamp(position.x(), available.left(), max_x), std::clamp(position.y(), available.top(), max_y));
+}
+
+QPoint centered_dialog_position(const QDialog& dialog) {
+  const auto owner = dialog_owner_geometry(dialog);
+  const auto size = dialog_placement_size(dialog);
+  return clamped_dialog_position(
+      dialog, owner.center() - QPoint(size.width() / 2, size.height() / 2));
+}
+
+bool restore_dialog_position(QDialog& dialog) {
+  const auto key = dialog_position_key(dialog);
+  const auto moved_key = dialog_position_moved_key(dialog);
+  if (key.isEmpty() || moved_key.isEmpty()) {
+    return false;
+  }
+
+  auto settings = app_settings();
+  if (!settings.value(moved_key, false).toBool()) {
+    return false;
+  }
+  const auto stored_position = settings.value(key);
+  if (!stored_position.canConvert<QPoint>()) {
+    return false;
+  }
+  dialog.move(clamped_dialog_position(dialog, stored_position.toPoint()));
+  return true;
+}
+
+#ifdef Q_OS_WASM
+constexpr auto kDialogOverflowScrollInstalledProperty = "patchy.dialogOverflowScrollInstalled";
+
+// Last resort for a dialog whose LAYOUT minimum exceeds the canvas: resizing
+// below that minimum would only overlap the same controls, so the content
+// moves into a scroll area instead and the dialog then fits the canvas with
+// its button row reachable by scrolling. Dark-chrome dialogs keep the title
+// bar fixed and scroll the content area below it; other dialogs scroll whole.
+bool install_dialog_overflow_scroll(QDialog& dialog, QSize bound) {
+  if (dialog.property(kDialogOverflowScrollInstalledProperty).toBool()) {
+    return false;
+  }
+  auto* layout = dialog.layout();
+  if (layout == nullptr) {
+    return false;
+  }
+  const auto layout_minimum = layout->totalMinimumSize();
+  if (layout_minimum.width() <= bound.width() && layout_minimum.height() <= bound.height()) {
+    return false;
+  }
+  dialog.setProperty(kDialogOverflowScrollInstalledProperty, true);
+
+  auto* scroll = new QScrollArea(&dialog);
+  scroll->setObjectName(QStringLiteral("dialogOverflowScroll"));
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setStyleSheet(
+      QStringLiteral("QScrollArea#dialogOverflowScroll { background: transparent; }"
+                     "QScrollArea#dialogOverflowScroll > QWidget > QWidget { background: transparent; }"));
+
+  if (auto* content = dialog.findChild<QWidget*>(QStringLiteral("dialogChromeContent"), Qt::FindDirectChildrenOnly);
+      content != nullptr) {
+    if (auto* item = layout->replaceWidget(content, scroll); item != nullptr) {
+      delete item;
+    }
+    scroll->setWidget(content);
+  } else {
+    auto* container = new QWidget(scroll);
+    // setLayout on a widget steals the layout, and with it every child widget,
+    // from its previous widget (the Designer container-morph path).
+    container->setLayout(layout);
+    scroll->setWidget(container);
+    auto* root = new QVBoxLayout(&dialog);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->addWidget(scroll);
+  }
+  return true;
+}
+
+// The browser canvas is the entire "screen" and no window manager exists to
+// rescue an oversized window, so a dialog taller than the canvas leaves its
+// button row unreachable below the page fold. Shrink the dialog, and the
+// explicit minimum several large dialogs set above what a small browser
+// window can show, to the canvas before placing it; when even the layout
+// minimum cannot fit, install_dialog_overflow_scroll makes the content
+// scrollable so the shrink can proceed. Desktop builds keep the platform
+// window manager's behavior.
+void clamp_dialog_to_screen(QDialog& dialog) {
+  const auto* screen =
+      dialog.parentWidget() != nullptr ? dialog.parentWidget()->screen() : QGuiApplication::primaryScreen();
+  if (screen == nullptr) {
+    return;
+  }
+  QSize bound = screen->availableGeometry().size();
+  if (!dialog.windowFlags().testFlag(Qt::FramelessWindowHint)) {
+    // The Qt-drawn frame does not exist until the window is created, so
+    // reserve its space through the style's title-bar metric plus borders.
+    bound.rwidth() -= 8;
+    bound.rheight() -= dialog.style()->pixelMetric(QStyle::PM_TitleBarHeight, nullptr, &dialog) + 8;
+  }
+  if (bound.isEmpty()) {
+    return;
+  }
+  const auto minimum = dialog.minimumSize();
+  if (minimum.width() > bound.width() || minimum.height() > bound.height()) {
+    dialog.setMinimumSize(minimum.boundedTo(bound));
+  }
+  // Capture the intended size before any scroll wrap: wrapping collapses the
+  // size hint, and the pre-wrap size is what should be clamped to the canvas.
+  const auto size = dialog_placement_size(dialog);
+  const bool wrapped = install_dialog_overflow_scroll(dialog, bound);
+  if (wrapped || size.width() > bound.width() || size.height() > bound.height()) {
+    dialog.resize(size.boundedTo(bound));
+  }
+}
+#endif
+
+void place_dialog(QDialog& dialog) {
+#ifdef Q_OS_WASM
+  clamp_dialog_to_screen(dialog);
+#endif
+  if (!restore_dialog_position(dialog)) {
+    dialog.move(centered_dialog_position(dialog));
+  }
+}
+
+void save_dialog_position(const QDialog& dialog) {
+  const auto key = dialog_position_key(dialog);
+  const auto moved_key = dialog_position_moved_key(dialog);
+  if (key.isEmpty() || moved_key.isEmpty()) {
+    return;
+  }
+
+  auto settings = app_settings();
+  settings.setValue(key, dialog.pos());
+  settings.setValue(moved_key, true);
+}
+
+void clear_dialog_position(const QDialog& dialog) {
+  const auto group = dialog_position_group(dialog);
+  if (group.isEmpty()) {
+    return;
+  }
+
+  auto settings = app_settings();
+  settings.remove(group);
+}
+
+bool has_remembered_dialog_position(const QDialog& dialog) {
+  const auto key = dialog_position_key(dialog);
+  const auto moved_key = dialog_position_moved_key(dialog);
+  if (key.isEmpty() || moved_key.isEmpty()) {
+    return false;
+  }
+
+  auto settings = app_settings();
+  return settings.value(moved_key, false).toBool() && settings.value(key).canConvert<QPoint>();
+}
+
+class DialogPositionMemoryFilter final : public QObject {
+public:
+  explicit DialogPositionMemoryFilter(QDialog& dialog, bool had_remembered_position, QObject* parent)
+      : QObject(parent), dialog_(dialog), had_remembered_position_(had_remembered_position),
+        placement_position_(dialog.pos()) {}
+
+protected:
+  bool eventFilter(QObject* watched, QEvent* event) override {
+    switch (event->type()) {
+      case QEvent::Show:
+        shown_ = true;
+        placement_position_ = dialog_.pos();
+        break;
+      case QEvent::Move:
+        if (shown_ && (dialog_.pos() - placement_position_).manhattanLength() > 2) {
+          user_moved_ = true;
+        }
+        break;
+      case QEvent::Close:
+      case QEvent::Hide:
+        if (user_moved_) {
+          save_dialog_position(dialog_);
+        } else if (!had_remembered_position_) {
+          clear_dialog_position(dialog_);
+        }
+        break;
+      default:
+        break;
+    }
+    return QObject::eventFilter(watched, event);
+  }
+
+private:
+  QDialog& dialog_;
+  const bool had_remembered_position_;
+  bool shown_{false};
+  bool user_moved_{false};
+  QPoint placement_position_;
+};
+
+#ifndef Q_OS_WASM
+// The QFileDialog configuration cluster below only serves the desktop branches
+// of the pickers; on wasm those branches delegate to dialog_utils_wasm.cpp and
+// the unused helpers would each earn an -Wunused-function warning.
+void apply_file_dialog_initial_path(QFileDialog& dialog, const QString& path, QFileDialog::AcceptMode accept_mode) {
+  if (path.isEmpty()) {
+    return;
+  }
+
+  const QFileInfo info(path);
+  if (accept_mode == QFileDialog::AcceptSave) {
+    if (const auto directory = info.absoluteDir(); directory.exists()) {
+      dialog.setDirectory(directory);
+    }
+    if (!info.fileName().isEmpty()) {
+      dialog.selectFile(info.fileName());
+    }
+    return;
+  }
+
+  if (info.isDir()) {
+    dialog.setDirectory(info.absoluteFilePath());
+    return;
+  }
+  if (info.exists()) {
+    dialog.setDirectory(info.absolutePath());
+    dialog.selectFile(info.fileName());
+    return;
+  }
+  dialog.setDirectory(path);
+}
+
+bool use_qt_file_dialog_controls() {
+  // Native dialogs on every platform (Windows shell dialogs, macOS panels, portal
+  // dialogs inside Flatpak); only the offscreen test platform forces Qt's own widget
+  // dialog, which is what makes the file-dialog UI tests drivable.
+  return QGuiApplication::platformName().compare(QStringLiteral("offscreen"), Qt::CaseInsensitive) == 0;
+}
+
+void configure_file_dialog(QFileDialog& dialog, const QString& object_name, const QString& initial_path,
+                           QFileDialog::AcceptMode accept_mode, QFileDialog::FileMode file_mode,
+                           QString* selected_filter) {
+  if (!object_name.isEmpty()) {
+    dialog.setObjectName(object_name);
+  }
+  if (use_qt_file_dialog_controls()) {
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+  }
+  dialog.setAcceptMode(accept_mode);
+  dialog.setFileMode(file_mode);
+  dialog.resize(760, 520);
+  apply_file_dialog_initial_path(dialog, initial_path, accept_mode);
+  if (selected_filter != nullptr && !selected_filter->isEmpty()) {
+    dialog.selectNameFilter(*selected_filter);
+  }
+}
+
+void install_save_file_recent_dropdown(QFileDialog& dialog, const QStringList& recent_files) {
+  if (recent_files.isEmpty()) {
+    return;
+  }
+
+  QStringList paths;
+  for (const auto& path : recent_files) {
+    const auto absolute_path = QFileInfo(path).absoluteFilePath();
+    if (!absolute_path.isEmpty() && !paths.contains(absolute_path)) {
+      paths.push_back(absolute_path);
+    }
+  }
+  if (paths.isEmpty()) {
+    return;
+  }
+
+  auto* file_name_edit = dialog.findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+  if (file_name_edit == nullptr || file_name_edit->parentWidget() == nullptr) {
+    return;
+  }
+
+  auto* combo = new QComboBox(file_name_edit->parentWidget());
+  combo->setObjectName(QStringLiteral("saveAsRecentFileNameCombo"));
+  combo->setEditable(true);
+  combo->setInsertPolicy(QComboBox::NoInsert);
+  combo->setSizePolicy(file_name_edit->sizePolicy());
+  for (const auto& path : paths) {
+    combo->addItem(path, path);
+    combo->setItemData(combo->count() - 1, path, Qt::ToolTipRole);
+  }
+  combo->setEditText(file_name_edit->text());
+
+  if (auto* parent_layout = file_name_edit->parentWidget()->layout(); parent_layout != nullptr) {
+    if (auto* item = parent_layout->replaceWidget(file_name_edit, combo); item != nullptr) {
+      delete item;
+      file_name_edit->hide();
+    }
+  }
+
+  QObject::connect(combo->lineEdit(), &QLineEdit::textChanged, &dialog, [file_name_edit](const QString& text) {
+    if (file_name_edit->text() != text) {
+      file_name_edit->setText(text);
+    }
+  });
+  QObject::connect(file_name_edit, &QLineEdit::textChanged, combo, [combo](const QString& text) {
+    if (combo->currentText() != text) {
+      combo->setEditText(text);
+    }
+  });
+  QObject::connect(combo, &QComboBox::currentIndexChanged, &dialog, [&dialog, combo](int index) {
+    const auto path = combo->itemData(index).toString();
+    if (path.isEmpty()) {
+      return;
+    }
+    const QFileInfo info(path);
+    if (info.absoluteDir().exists()) {
+      dialog.setDirectory(info.absoluteDir());
+    }
+    if (!info.fileName().isEmpty()) {
+      dialog.selectFile(info.fileName());
+    }
+  });
+}
+#endif  // !Q_OS_WASM
+
+}  // namespace
+
+namespace {
+
+// Frame, QSS padding, line-edit text margins, and cursor slack around the value
+// text of an options-bar spin box (the stylesheet is not applied yet when the
+// bar is built, so this cannot be read from the widget).
+constexpr int kToolbarSpinboxChromeWidth = 14;
+
+int toolbar_spinbox_width(int width, const QFontMetrics& metrics, const QString& min_text,
+                          const QString& max_text) {
+  const int text_width = std::max(metrics.horizontalAdvance(min_text),
+                                  metrics.horizontalAdvance(max_text));
+  return std::max(width, text_width + kChevronAreaWidth + kToolbarSpinboxChromeWidth);
+}
+
+}  // namespace
+
+void scale_font_size(QFont& font, double scale) {
+  if (scale <= 0.0 || !std::isfinite(scale)) {
+    return;
+  }
+  if (font.pixelSize() > 0) {
+    font.setPixelSize(
+        std::max(1, static_cast<int>(std::round(static_cast<double>(font.pixelSize()) * scale))));
+  } else if (font.pointSizeF() > 0.0) {
+    font.setPointSizeF(std::max(1.0, font.pointSizeF() * scale));
+  }
+}
+
+QFont scaled_font(QFont font, double scale) {
+  scale_font_size(font, scale);
+  return font;
+}
+
+QFont offset_font(QFont font, int size_delta, bool bold) {
+  font.setBold(bold);
+  if (font.pixelSize() > 0) {
+    font.setPixelSize(std::max(8, font.pixelSize() + size_delta));
+  } else if (font.pointSizeF() > 0.0) {
+    font.setPointSizeF(std::max(7.0, font.pointSizeF() + size_delta));
+  }
+  return font;
+}
+
+void configure_toolbar_spinbox(QSpinBox* spin, int width) {
+  spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+  spin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  const auto locale = spin->locale();
+  spin->setFixedWidth(toolbar_spinbox_width(
+      width, spin->fontMetrics(),
+      spin->prefix() + locale.toString(spin->minimum()) + spin->suffix(),
+      spin->prefix() + locale.toString(spin->maximum()) + spin->suffix()));
+  install_numeric_popup(spin);
+}
+
+void configure_toolbar_spinbox(QDoubleSpinBox* spin, int width) {
+  spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+  spin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  const auto locale = spin->locale();
+  spin->setFixedWidth(toolbar_spinbox_width(
+      width, spin->fontMetrics(),
+      spin->prefix() + locale.toString(spin->minimum(), 'f', spin->decimals()) + spin->suffix(),
+      spin->prefix() + locale.toString(spin->maximum(), 'f', spin->decimals()) + spin->suffix()));
+  install_numeric_popup(spin);
+}
+
+void configure_dialog_spinbox(QSpinBox* spin, int width) {
+  spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+  spin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  spin->setMinimumWidth(width);
+  spin->setMinimumHeight(24);
+}
+
+void configure_dialog_spinbox(QDoubleSpinBox* spin, int width) {
+  spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+  spin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  spin->setMinimumWidth(width);
+  spin->setMinimumHeight(24);
+}
+
+QSpinBox* add_dialog_slider_spin_row(QFormLayout* form, QWidget* parent, const QString& label,
+                                     const QString& slider_object_name, const QString& spin_object_name,
+                                     int minimum, int maximum, int value, const QString& suffix,
+                                     int spin_width, int row_spacing) {
+  auto* row = new QWidget(parent);
+  auto* row_layout = new QHBoxLayout(row);
+  row_layout->setContentsMargins(0, 0, 0, 0);
+  if (row_spacing >= 0) {
+    row_layout->setSpacing(row_spacing);
+  }
+  auto* slider = new QSlider(Qt::Horizontal, row);
+  slider->setObjectName(slider_object_name);
+  slider->setRange(minimum, maximum);
+  slider->setValue(value);
+  auto* spin = new QSpinBox(row);
+  spin->setObjectName(spin_object_name);
+  spin->setRange(minimum, maximum);
+  spin->setValue(value);
+  if (!suffix.isEmpty()) {
+    spin->setSuffix(suffix);
+  }
+  configure_dialog_spinbox(spin, spin_width);
+  row_layout->addWidget(slider, 1);
+  row_layout->addWidget(spin);
+  QObject::connect(slider, &QSlider::valueChanged, spin, &QSpinBox::setValue);
+  QObject::connect(spin, qOverload<int>(&QSpinBox::valueChanged), slider, &QSlider::setValue);
+  form->addRow(label, row);
+  return spin;
+}
+
+void position_popup_below(const QWidget& anchor, QWidget& popup) {
+  auto position = anchor.mapToGlobal(QPoint(0, anchor.height()));
+  if (const auto* screen = anchor.screen(); screen != nullptr) {
+    const auto available = screen->availableGeometry();
+    position.setX(std::clamp(position.x(), available.left(),
+                             std::max(available.left(), available.right() - popup.width() + 1)));
+    if (position.y() + popup.height() > available.bottom() + 1) {
+      position.setY(std::max(available.top(), anchor.mapToGlobal(QPoint(0, 0)).y() - popup.height()));
+    }
+  }
+  popup.move(position);
+}
+
+ThemedQss dialog_spinbox_button_style() {
+  return ThemedQss(QStringLiteral(R"(
+    QSpinBox,
+    QDoubleSpinBox {
+      background: @field_bg;
+      border: 1px solid @field_inset_border;
+      border-top-color: @field_bevel_top;
+      border-radius: 2px;
+      color: @text_bright;
+      min-height: 26px;
+      padding-left: 6px;
+      padding-right: 54px; /* keep text clear of the - / + buttons */
+    }
+    QSpinBox:disabled,
+    QDoubleSpinBox:disabled {
+      background: @spinbox_disabled_bg;
+      color: @spinbox_disabled_text;
+    }
+    /* The decrement button sits on the left, the increment button on the
+       far right, so the right-hand button always raises the value. */
+    QSpinBox::down-button,
+    QDoubleSpinBox::down-button {
+      subcontrol-origin: border;
+      subcontrol-position: center right;
+      right: 27px;
+      width: 24px;
+      height: 24px;
+      background: @button_bg;
+      border: 1px solid @field_inset_border;
+      border-top-color: @field_bevel_top;
+      border-radius: 2px;
+    }
+    QSpinBox::up-button,
+    QDoubleSpinBox::up-button {
+      subcontrol-origin: border;
+      subcontrol-position: center right;
+      right: 1px;
+      width: 24px;
+      height: 24px;
+      background: @button_bg;
+      border: 1px solid @field_inset_border;
+      border-top-color: @field_bevel_top;
+      border-radius: 2px;
+    }
+    QSpinBox::up-button:hover,
+    QSpinBox::down-button:hover,
+    QDoubleSpinBox::up-button:hover,
+    QDoubleSpinBox::down-button:hover {
+      background: @button_hover_bg;
+      border-color: @button_hover_border;
+    }
+    QSpinBox::up-button:pressed,
+    QSpinBox::down-button:pressed,
+    QDoubleSpinBox::up-button:pressed,
+    QDoubleSpinBox::down-button:pressed {
+      background: @accent_pressed_bg;
+      border-color: @accent_border_bright;
+    }
+    QSpinBox::up-button:disabled,
+    QSpinBox::down-button:disabled,
+    QDoubleSpinBox::up-button:disabled,
+    QDoubleSpinBox::down-button:disabled {
+      background: @spin_button_disabled_bg;
+      border-top-color: @spin_button_disabled_bevel;
+    }
+    QSpinBox::up-arrow,
+    QDoubleSpinBox::up-arrow {
+      image: url(@icon(spin-plus));
+      width: 12px;
+      height: 12px;
+    }
+    QSpinBox::up-arrow:disabled,
+    QSpinBox::up-arrow:off,
+    QDoubleSpinBox::up-arrow:disabled,
+    QDoubleSpinBox::up-arrow:off {
+      image: url(@icon(spin-plus-disabled));
+    }
+    QSpinBox::down-arrow,
+    QDoubleSpinBox::down-arrow {
+      image: url(@icon(spin-minus));
+      width: 12px;
+      height: 12px;
+    }
+    QSpinBox::down-arrow:disabled,
+    QSpinBox::down-arrow:off,
+    QDoubleSpinBox::down-arrow:disabled,
+    QDoubleSpinBox::down-arrow:off {
+      image: url(@icon(spin-minus-disabled));
+    }
+  )"));
+}
+
+void configure_compact_symbol_button(QPushButton* button) {
+  if (button == nullptr) {
+    return;
+  }
+  button->setProperty("compactSymbolButton", true);
+  button->style()->unpolish(button);
+  button->style()->polish(button);
+
+  const auto symbol = button->text().trimmed();
+  if (symbol == QStringLiteral("+") || symbol == QStringLiteral("-")) {
+    button->setText(QString());
+    button->setIcon(compact_symbol_icon(symbol));
+    button->setIconSize(QSize(16, 16));
+  }
+  button->setFixedSize(22, 22);
+  button->update();
+}
+
+VisibleSizeGrip::VisibleSizeGrip(QWidget* parent) : QSizeGrip(parent) {
+  setFixedSize(16, 16);
+}
+
+void VisibleSizeGrip::paintEvent(QPaintEvent* /*event*/) {
+  QPainter painter(this);
+  painter.setRenderHint(QPainter::Antialiasing);
+  painter.setPen(QPen(QColor(0x9A, 0x9A, 0x9A), 1.6));
+  for (int line = 0; line < 3; ++line) {
+    const auto offset = 3.0 + line * 4.0;
+    painter.drawLine(QPointF(width() - 2.0, height() - 2.0 - offset),
+                     QPointF(width() - 2.0 - offset, height() - 2.0));
+  }
+}
+
+QVBoxLayout* install_dark_dialog_chrome(QDialog& dialog, QVBoxLayout* root, const QString& title,
+                                        DialogChromeCloseMode close_mode) {
+  dialog.setWindowTitle(title);
+  dialog.setWindowFlag(Qt::FramelessWindowHint, true);
+  apply_frameless_window_effects_on_show(dialog, WindowCornerRadius::Standard);
+  append_themed_style(dialog, dialog_chrome_style());
+  // 1px inset, not zero: QSS draws the QDialog border under child widgets, so
+  // a full-bleed title bar would cover the outline. That outline is the only
+  // edge a floating dialog has where no window-manager shadow exists (wasm),
+  // and in Light the title bar shares @title_bar_bg with the chrome behind it.
+  root->setContentsMargins(1, 1, 1, 1);
+  root->setSpacing(0);
+
+  auto* title_bar = new QWidget(&dialog);
+  title_bar->setObjectName(QStringLiteral("dialogChromeTitleBar"));
+  title_bar->setFixedHeight(34);
+  title_bar->installEventFilter(new DialogChromeDragFilter(dialog, title_bar));
+  auto* title_layout = new QHBoxLayout(title_bar);
+  title_layout->setContentsMargins(9, 0, 0, 0);
+  title_layout->setSpacing(8);
+
+  auto* badge = new QLabel(title_bar);
+  badge->setObjectName(QStringLiteral("dialogChromePatchyBadge"));
+  badge->setAlignment(Qt::AlignCenter);
+  badge->setFixedSize(18, 18);
+  badge->setPixmap(patchy_app_icon().pixmap(18, 18));
+  title_layout->addWidget(badge);
+
+  auto* label = new QLabel(title, title_bar);
+  label->setObjectName(QStringLiteral("dialogChromeTitleLabel"));
+  title_layout->addWidget(label, 1);
+
+  auto* close = new QToolButton(title_bar);
+  close->setObjectName(QStringLiteral("dialogChromeCloseButton"));
+  close->setAutoRaise(false);
+  close->setFocusPolicy(Qt::NoFocus);
+  close->setIcon(dialog_close_icon());
+  close->setIconSize(QSize(16, 16));
+  const bool accept_on_close = close_mode == DialogChromeCloseMode::Accept;
+  close->setToolTip(accept_on_close ? QObject::tr("Apply and Close") : QObject::tr("Close"));
+  close->setFixedSize(46, 34);
+  title_layout->addWidget(close);
+  QObject::connect(close, &QToolButton::clicked, &dialog, accept_on_close ? &QDialog::accept : &QDialog::reject);
+
+  auto* content = new QWidget(&dialog);
+  content->setObjectName(QStringLiteral("dialogChromeContent"));
+  auto* content_layout = new QVBoxLayout(content);
+  content_layout->setContentsMargins(12, 12, 12, 12);
+  content_layout->setSpacing(8);
+
+  root->addWidget(title_bar);
+  root->addWidget(content, 1);
+  return content_layout;
+}
+
+void set_dialog_position_memory_id(QDialog& dialog, const QString& id) {
+  dialog.setProperty(kDialogPositionMemoryIdProperty, id);
+}
+
+void remember_dialog_position(QDialog& dialog) {
+  if (dialog.property(kDialogPositionMemoryInstalledProperty).toBool()) {
+    return;
+  }
+
+  const auto had_remembered_position = has_remembered_dialog_position(dialog);
+  place_dialog(dialog);
+  dialog.installEventFilter(new DialogPositionMemoryFilter(dialog, had_remembered_position, &dialog));
+  dialog.setProperty(kDialogPositionMemoryInstalledProperty, true);
+}
+
+static bool unattended_dialog(const QWidget& dialog) {
+  for (auto* owner = dialog.parentWidget(); owner != nullptr; owner = owner->parentWidget()) {
+    if (auto* window = qobject_cast<MainWindow*>(owner); window != nullptr) {
+      // These dialogs inspect application state. The automation activity guard
+      // checks commands that apply editing settings; opening the dialog is safe.
+      const auto name = dialog.objectName();
+      if (window->isVisible() && !qEnvironmentVariableIsSet("PATCHY_HEADLESS") &&
+          (name == QStringLiteral("patchyPreferencesDialog") || name == QStringLiteral("patchySplashScreen") ||
+           name == QStringLiteral("aiSetupDialog"))) return false;
+      return window->unattended_automation();
+    }
+  }
+  return false;
+}
+
+int exec_dialog(QDialog& dialog) {
+  if (unattended_dialog(dialog)) {
+    return QDialog::Rejected;
+  }
+  remember_dialog_position(dialog);
+#ifdef Q_OS_WASM
+  // The guards watch app-wide events; make sure they exist before the first
+  // modal ever shows (run_non_modal_dialog installs them too, but a modal can
+  // come first, e.g. New Document straight from the start panel).
+  ensure_wasm_dialog_guards();
+#endif
+  return dialog.exec();
+}
+
+#ifdef Q_OS_WASM
+namespace {
+
+// Qt's wasm compositor raises whichever window is clicked, and (through Qt
+// 6.10 at least) does not re-raise a window's transient children with it, so
+// a canvas click buried every open non-modal dialog behind the fullscreen
+// main window with no window manager to recover it. Mirror the macOS
+// child-window anchor at the application level: watch presses and window
+// activation app-wide, and when a window that hosts registered dialogs comes
+// forward, restack its visible dialogs above it one event-loop turn later
+// (after the compositor's own raise has happened).
+class WasmDialogRaiser : public QObject {
+ public:
+  static WasmDialogRaiser& instance() {
+    static auto* raiser = new WasmDialogRaiser(qApp);
+    return *raiser;
+  }
+
+  void watch(QDialog& dialog) {
+    dialogs_.removeAll(nullptr);
+    if (!dialogs_.contains(&dialog)) {
+      dialogs_.append(&dialog);
+    }
+  }
+
+  bool eventFilter(QObject* watched, QEvent* event) override {
+    // A modal window that blocks another window must end up above everything
+    // it blocks, but the compositor inserts it directly above its transient
+    // parent (usually the bottom-most main window), and the stack's
+    // insertion-time activation runs at platform-window creation - before Qt
+    // registers the modal block - so it re-activates whichever sibling was
+    // already on top instead of redirecting to the modal. A script options
+    // dialog opened while the Script Manager sat above the main window
+    // therefore showed up *underneath* it: invisible yet application-modal,
+    // every click in the app silently swallowed, with the script parked
+    // forever in the dialog's nested event loop (the 2026-07 Export All
+    // Layers wasm freeze). WindowBlocked is the signature of exactly that
+    // moment, and it also fires for Qt's own static dialogs (getColor,
+    // getText, getExistingDirectory) that no Patchy-side show path can reach,
+    // so raise the active modal one turn later, after the compositor's
+    // insertion and Qt's modal bookkeeping have both settled.
+    if (event->type() == QEvent::WindowBlocked) {
+      schedule_modal_raise();
+      return false;
+    }
+    if (event->type() != QEvent::MouseButtonPress && event->type() != QEvent::WindowActivate) {
+      return false;
+    }
+    auto* widget = qobject_cast<QWidget*>(watched);
+    if (widget == nullptr) {
+      return false;
+    }
+    QWidget* window = widget->window();
+    if (!hosts_registered_dialog(window)) {
+      return false;
+    }
+    QTimer::singleShot(0, this, [this, window = QPointer<QWidget>(window)] {
+      if (window == nullptr) {
+        return;
+      }
+      // Raising a dialog can bury its own child dialogs in turn, so walk the
+      // parent-window chain breadth-first (dialog stacks are shallow).
+      QList<QWidget*> hosts{window.data()};
+      for (int i = 0; i < hosts.size() && i < 8; ++i) {
+        for (const auto& dialog : dialogs_) {
+          if (dialog != nullptr && dialog->isVisible() && dialog->window() != hosts[i] &&
+              dialog->parentWidget() != nullptr &&
+              dialog->parentWidget()->window() == hosts[i]) {
+            dialog->raise();
+            hosts.append(dialog->window());
+          }
+        }
+      }
+    });
+    return false;
+  }
+
+ private:
+  explicit WasmDialogRaiser(QObject* parent) : QObject(parent) { qApp->installEventFilter(this); }
+
+  // One raise per event-loop turn: showing one modal blocks many windows and
+  // each delivery lands here.
+  void schedule_modal_raise() {
+    if (modal_raise_pending_) {
+      return;
+    }
+    modal_raise_pending_ = true;
+    QTimer::singleShot(0, this, [this] {
+      modal_raise_pending_ = false;
+      // The stack may have changed since the block was seen; the CURRENT
+      // active modal is always the window that must be visible and on top.
+      if (auto* modal = QApplication::activeModalWidget();
+          modal != nullptr && modal->isVisible()) {
+        modal->raise();
+        modal->activateWindow();
+      }
+    });
+  }
+
+  bool hosts_registered_dialog(const QWidget* window) const {
+    for (const auto& dialog : dialogs_) {
+      if (dialog != nullptr && dialog->isVisible() && dialog->window() != window &&
+          dialog->parentWidget() != nullptr && dialog->parentWidget()->window() == window) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  QList<QPointer<QDialog>> dialogs_;
+  bool modal_raise_pending_{false};
+};
+
+// Repairs the initial focus of dialogs whose creator set a focus widget
+// before exec()/show() (Image Size, Canvas Size, New Document, the wasm save
+// prompt). The wasm window stack activates a freshly inserted window at
+// platform-window creation (QWasmWindowTreeNode::onSubtreeChanged), which
+// QWidget::setVisible reaches through create() BEFORE show_helper() marks the
+// widget tree visible, and wasm delivers window-system events synchronously.
+// QApplicationPrivate::setActiveWindow therefore runs while the pre-set focus
+// widget still reports isVisible() == false, rejects it, and falls back to
+// focusNextPrevChild_helper - whose isVisibleTo() check passes for the
+// not-yet-shown siblings - so focus lands one widget PAST the intended one
+// (Image Size opened with Height focused instead of Width). Desktop platforms
+// activate after the show and never see the not-yet-visible state. A hidden
+// dialog receiving WindowActivate happens only in that create-time activation:
+// remember its focus widget there (the events run before setActiveWindow's
+// focus fallback) and re-assert it on the dialog's Show event, which arrives
+// later in the same setVisible pass - after the tree is marked visible,
+// before the first paint.
+class WasmDialogInitialFocusGuard : public QObject {
+ public:
+  static WasmDialogInitialFocusGuard& instance() {
+    static auto* guard = new WasmDialogInitialFocusGuard(qApp);
+    return *guard;
+  }
+
+  bool eventFilter(QObject* watched, QEvent* event) override {
+    const auto type = event->type();
+    if (type != QEvent::WindowActivate && type != QEvent::Show && type != QEvent::Hide) {
+      return false;
+    }
+    auto* dialog = qobject_cast<QDialog*>(watched);
+    if (dialog == nullptr) {
+      return false;
+    }
+    if (type == QEvent::WindowActivate) {
+      if (!dialog->isVisible()) {
+        if (auto* intended = dialog->focusWidget(); intended != nullptr) {
+          pending_.insert(dialog, intended);
+        }
+      }
+      return false;
+    }
+    // Show restores the recorded widget (the caller's pre-show selection
+    // survives the stomp untouched; verified against the wasm build). Hide
+    // only clears a stale entry: a dialog activated-while-hidden always sees
+    // its Show in the same setVisible pass, so a Hide can only arrive after
+    // the repair ran.
+    const QPointer<QWidget> intended = pending_.take(dialog);
+    if (type == QEvent::Show && intended != nullptr && dialog->focusWidget() != intended) {
+      intended->setFocus(Qt::OtherFocusReason);
+    }
+    return false;
+  }
+
+ private:
+  explicit WasmDialogInitialFocusGuard(QObject* parent) : QObject(parent) {
+    qApp->installEventFilter(this);
+  }
+
+  QHash<QDialog*, QPointer<QWidget>> pending_;
+};
+
+}  // namespace
+
+void ensure_wasm_dialog_guards() {
+  WasmDialogRaiser::instance();
+  WasmDialogInitialFocusGuard::instance();
+}
+
+void keep_dialog_above_parent_window(QDialog& dialog) {
+  WasmDialogRaiser::instance().watch(dialog);
+}
+#elif !defined(Q_OS_MACOS)
+void keep_dialog_above_parent_window(QDialog& dialog) {
+  // Windows owned windows and X11/Wayland transients already stay above their
+  // parent; only macOS needs the child-window anchor (dialog_utils_mac.mm) and
+  // wasm the compositor restack above.
+  Q_UNUSED(dialog);
+}
+#endif
+
+void suppress_native_tab_bar_base(QTabWidget& tabs) {
+  if (auto* tab_bar = tabs.tabBar(); tab_bar != nullptr) {
+    tab_bar->setDrawBase(false);
+  }
+}
+
+namespace {
+
+// One entry per live run_non_modal_dialog nested loop on this thread,
+// innermost last. unwind_non_modal_dialog_loop parks the exception here so the
+// rethrow happens on run_non_modal_dialog's own frame, with zero event
+// dispatcher frames in the unwind path.
+struct NonModalDialogLoopFrame {
+  QEventLoop* loop{nullptr};
+  std::exception_ptr pending;
+};
+
+std::vector<NonModalDialogLoopFrame*>& non_modal_dialog_loop_frames() {
+  thread_local std::vector<NonModalDialogLoopFrame*> frames;
+  return frames;
+}
+
+}  // namespace
+
+int run_non_modal_dialog(QDialog& dialog) {
+  if (unattended_dialog(dialog)) {
+    return QDialog::Rejected;
+  }
+  remember_dialog_position(dialog);
+#ifdef Q_OS_WASM
+  ensure_wasm_dialog_guards();
+#endif
+  keep_dialog_above_parent_window(dialog);
+  dialog.setModal(false);
+  dialog.setWindowModality(Qt::NonModal);
+  // Non-modal means a parent dialog stays clickable, so the user can close it
+  // while this dialog's nested loop is still running. Reject with the parent:
+  // otherwise this dialog is orphaned, drops behind the main window on the next
+  // click (its hidden owner no longer anchors it in the z-order), and its nested
+  // loop, plus any state guarding it, never unwinds.
+  if (auto* parent = dialog.parentWidget(); parent != nullptr) {
+    if (auto* parent_dialog = qobject_cast<QDialog*>(parent->window());
+        parent_dialog != nullptr && parent_dialog != &dialog) {
+      QObject::connect(parent_dialog, &QDialog::finished, &dialog, &QDialog::reject);
+    }
+  }
+  QEventLoop loop;
+  QObject::connect(&dialog, &QDialog::finished, &loop, &QEventLoop::quit);
+  NonModalDialogLoopFrame frame{&loop, nullptr};
+  non_modal_dialog_loop_frames().push_back(&frame);
+  // qScopeGuard, not a statement after exec(): the pop must also happen when
+  // the rethrow below unwinds this frame.
+  const auto pop_frame =
+      qScopeGuard([] { non_modal_dialog_loop_frames().pop_back(); });
+  dialog.show();
+  dialog.raise();
+  dialog.activateWindow();
+  loop.exec();
+  if (frame.pending != nullptr) {
+    // Deliberately no hide(): the caller's unwind owns the dialog, exactly as
+    // it would on a return path that then threw. Stack dialogs are destroyed
+    // by that unwind; the heap call sites are Qt-parented.
+    std::rethrow_exception(frame.pending);
+  }
+  return dialog.result();
+}
+
+bool unwind_non_modal_dialog_loop(std::exception_ptr error) {
+  auto& frames = non_modal_dialog_loop_frames();
+  if (frames.empty()) {
+    return false;
+  }
+  auto* frame = frames.back();
+  // Keep the first pending error: it is the root cause, and the loop is
+  // already exiting.
+  if (frame->pending == nullptr) {
+    frame->pending = std::move(error);
+  }
+  frame->loop->quit();
+  return true;
+}
+
+namespace {
+
+// Native Windows message boxes accept plain Y/N as accelerators for Yes/No;
+// Qt only wires the Alt+mnemonic. An event filter rather than QShortcut so a
+// key press reaching the box (directly or by propagating up from a focused
+// button) behaves the same for real input and synthetic events in offscreen
+// tests, which never go through the platform shortcut map.
+class MessageBoxYesNoKeyFilter : public QObject {
+ public:
+  explicit MessageBoxYesNoKeyFilter(QMessageBox& dialog) : QObject(&dialog), dialog_(dialog) {}
+
+  bool eventFilter(QObject* watched, QEvent* event) override {
+    if (event->type() == QEvent::KeyPress) {
+      const auto* key_event = static_cast<const QKeyEvent*>(event);
+      if (key_event->modifiers() == Qt::NoModifier) {
+        QAbstractButton* button = nullptr;
+        if (key_event->key() == Qt::Key_Y) {
+          button = dialog_.button(QMessageBox::Yes);
+        } else if (key_event->key() == Qt::Key_N) {
+          button = dialog_.button(QMessageBox::No);
+        }
+        if (button != nullptr && button->isEnabled()) {
+          button->click();
+          return true;
+        }
+      }
+    }
+    return QObject::eventFilter(watched, event);
+  }
+
+ private:
+  QMessageBox& dialog_;
+};
+
+}  // namespace
+
+QMessageBox::StandardButton show_warning_message(QWidget* parent, const QString& title, const QString& text,
+                                                 QMessageBox::StandardButtons buttons,
+                                                 QMessageBox::StandardButton default_button,
+                                                 const QString& object_name) {
+  QMessageBox dialog(QMessageBox::Warning, title, text, buttons, parent);
+  if (!object_name.isEmpty()) {
+    dialog.setObjectName(object_name);
+  }
+  if (default_button != QMessageBox::NoButton) {
+    dialog.setDefaultButton(default_button);
+  }
+  dialog.installEventFilter(new MessageBoxYesNoKeyFilter(dialog));
+  return static_cast<QMessageBox::StandardButton>(exec_dialog(dialog));
+}
+
+void show_information_message(QWidget* parent, const QString& title, const QString& text,
+                              const QString& object_name) {
+  QMessageBox dialog(QMessageBox::Information, title, text, QMessageBox::Ok, parent);
+  if (!object_name.isEmpty()) {
+    dialog.setObjectName(object_name);
+  }
+  exec_dialog(dialog);
+}
+
+void show_critical_message(QWidget* parent, const QString& title, const QString& text, const QString& object_name) {
+  QMessageBox dialog(QMessageBox::Critical, title, text, QMessageBox::Ok, parent);
+  if (!object_name.isEmpty()) {
+    dialog.setObjectName(object_name);
+  }
+  exec_dialog(dialog);
+}
+
+QString get_open_file_name(QWidget* parent, const QString& caption, const QString& dir, const QString& filter,
+                           QString* selected_filter, const QString& object_name, FilterNameDetails filter_details) {
+#ifdef Q_OS_WASM
+  // The browser owns real file access: the picker copies the pick into MEMFS
+  // and returns its path so the path-based open pipeline runs unchanged
+  // (dialog_utils_wasm.cpp). Start directories, dialog position memory, and
+  // per-row filter selection have no browser equivalent.
+  Q_UNUSED(dir);
+  Q_UNUSED(selected_filter);
+  Q_UNUSED(object_name);
+  Q_UNUSED(filter_details);
+  return wasm_files::pick_open_file(parent, caption, filter);
+#else
+  QFileDialog dialog(parent, caption, QString(), filter);
+  configure_file_dialog(dialog, object_name, dir, QFileDialog::AcceptOpen, QFileDialog::ExistingFile, selected_filter);
+  if (filter_details == FilterNameDetails::Hidden) {
+    dialog.setOption(QFileDialog::HideNameFilterDetails, true);
+  }
+  if (exec_dialog(dialog) != QDialog::Accepted) {
+    return {};
+  }
+  if (selected_filter != nullptr) {
+    *selected_filter = dialog.selectedNameFilter();
+  }
+  const auto files = dialog.selectedFiles();
+  return files.isEmpty() ? QString() : files.front();
+#endif
+}
+
+QStringList get_open_file_names(QWidget* parent, const QString& caption, const QString& dir, const QString& filter,
+                                QString* selected_filter, const QString& object_name, FilterNameDetails filter_details) {
+#ifdef Q_OS_WASM
+  // Qt for wasm has no multi-file content picker, so multi-pick degrades to a
+  // single pick; every caller handles a one-element list sensibly.
+  auto path = get_open_file_name(parent, caption, dir, filter, selected_filter, object_name, filter_details);
+  return path.isEmpty() ? QStringList() : QStringList{std::move(path)};
+#else
+  QFileDialog dialog(parent, caption, QString(), filter);
+  configure_file_dialog(dialog, object_name, dir, QFileDialog::AcceptOpen, QFileDialog::ExistingFiles, selected_filter);
+  if (filter_details == FilterNameDetails::Hidden) {
+    dialog.setOption(QFileDialog::HideNameFilterDetails, true);
+  }
+  if (exec_dialog(dialog) != QDialog::Accepted) {
+    return {};
+  }
+  if (selected_filter != nullptr) {
+    *selected_filter = dialog.selectedNameFilter();
+  }
+  return dialog.selectedFiles();
+#endif
+}
+
+QString get_save_file_name(QWidget* parent, const QString& caption, const QString& dir, const QString& filter,
+                           QString* selected_filter, const QString& object_name, const QStringList& recent_files) {
+#ifdef Q_OS_WASM
+  // Saving in the browser means downloading, so there is no location to pick;
+  // a small name + format prompt stands in for the save dialog and the chosen
+  // MEMFS path flows through the unchanged writer pipeline, whose result the
+  // per-site offer_browser_download_for_saved_file hook then downloads.
+  Q_UNUSED(object_name);
+  Q_UNUSED(recent_files);
+  return wasm_files::prompt_save_file(parent, caption, dir, filter, selected_filter);
+#else
+  QFileDialog dialog(parent, caption, QString(), filter);
+  configure_file_dialog(dialog, object_name, dir, QFileDialog::AcceptSave, QFileDialog::AnyFile, selected_filter);
+  if (dialog.testOption(QFileDialog::DontUseNativeDialog)) {
+    install_save_file_recent_dropdown(dialog, recent_files);
+  }
+  if (exec_dialog(dialog) != QDialog::Accepted) {
+    return {};
+  }
+  if (selected_filter != nullptr) {
+    *selected_filter = dialog.selectedNameFilter();
+  }
+  const auto files = dialog.selectedFiles();
+  return files.isEmpty() ? QString() : files.front();
+#endif
+}
+
+void offer_browser_download_for_saved_file(const QString& path) {
+#ifdef Q_OS_WASM
+  wasm_files::download_file_in_browser(path);
+#else
+  // Desktop builds write real files; there is nothing to offer.
+  Q_UNUSED(path);
+#endif
+}
+
+void hide_menu_action_icons(QMenu* menu) {
+  if (menu == nullptr) {
+    return;
+  }
+  for (auto* action : menu->actions()) {
+    action->setIconVisibleInMenu(false);
+    if (auto* child_menu = action->menu(); child_menu != nullptr) {
+      hide_menu_action_icons(child_menu);
+    }
+  }
+}
+
+}  // namespace patchy::ui

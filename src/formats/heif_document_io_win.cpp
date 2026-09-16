@@ -1,0 +1,241 @@
+// Windows HEIF/HEIC decode through WIC (compiled on Windows only, see CMakeLists). The
+// codecs come from the Microsoft Store "HEIF Image Extensions" (container) and "HEVC
+// Video Extensions" (bitstream) packages -- in-box on Windows 11 22H2+ -- so Patchy ships
+// no HEVC decoder and carries no codec patent license. Two quirks drive the structure:
+//   - A stub HEIF codec is always registered, so availability cannot be enumerated; the
+//     only reliable probe is attempting the decode. With the HEIF package installed but
+//     HEVC missing, decoder creation and GetFrame SUCCEED and only the pixel request
+//     fails with MF_E_TOPO_CODEC_NOT_FOUND (the codec invokes the HEVC MFT lazily).
+//   - The decoder returns UNROTATED pixels; the container rotation (irot/imir) is
+//     surfaced as an EXIF-style value at /heifProps/Orientation, applied here via
+//     apply_exif_orientation.
+
+#include "formats/heif_document_io.hpp"
+
+#include "formats/wic_com.hpp"
+#include "support/translate_noop.hpp"
+
+#include <algorithm>
+#include <cstring>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace patchy::heif {
+
+using wic::ComPtr;
+using wic::CoInitGuard;
+using wic::create_srgb_transform;
+using wic::hresult_text;
+
+namespace {
+
+// MF_E_TOPO_CODEC_NOT_FOUND (mferror.h; redeclared to keep the Media Foundation headers
+// out of a WIC-only translation unit).
+constexpr HRESULT kMfTopoCodecNotFound = static_cast<HRESULT>(0xC00D5212);
+
+[[noreturn]] void throw_decode_error(HRESULT hr, bool container_opened) {
+  if (hr == WINCODEC_ERR_COMPONENTNOTFOUND && !container_opened) {
+    throw std::runtime_error(std::string(kHeifPackageMissingMarker) +
+                             " Opening HEIC images uses Windows' HEIF codec, which is not installed. "
+                             "Install the free 'HEIF Image Extensions' package from the Microsoft Store "
+                             "and try again.");
+  }
+  if (hr == kMfTopoCodecNotFound || hr == WINCODEC_ERR_COMPONENTNOTFOUND) {
+    // The container parsed but the HEVC bitstream decoder is missing.
+    throw std::runtime_error(std::string(kHevcPackageMissingMarker) +
+                             " Opening HEIC images uses Windows' HEVC codec, which is not installed. "
+                             "Install the 'HEVC Video Extensions' package from the Microsoft Store and "
+                             "try again.");
+  }
+  throw std::runtime_error("Unable to decode this HEIF image (Windows error " + hresult_text(hr) + ")");
+}
+
+[[nodiscard]] int read_heif_orientation(IWICBitmapFrameDecode& frame) {
+  ComPtr<IWICMetadataQueryReader> query;
+  if (FAILED(frame.GetMetadataQueryReader(query.put())) || !query) {
+    return 1;
+  }
+  PROPVARIANT value;
+  PropVariantInit(&value);
+  // The HEIF metadata block normalizes irot/imir to one EXIF-style 1-8 value; it is
+  // authoritative over any EXIF IFD copy in the file.
+  if (FAILED(query->GetMetadataByName(L"/heifProps/Orientation", &value))) {
+    return 1;
+  }
+  int orientation = 1;
+  switch (value.vt) {
+    case VT_UI1:
+      orientation = static_cast<int>(value.bVal);
+      break;
+    case VT_UI2:
+      orientation = static_cast<int>(value.uiVal);
+      break;
+    case VT_UI4:
+      orientation = static_cast<int>(value.ulVal);
+      break;
+    case VT_I2:
+      orientation = static_cast<int>(value.iVal);
+      break;
+    case VT_I4:
+      orientation = static_cast<int>(value.lVal);
+      break;
+    default:
+      break;
+  }
+  PropVariantClear(&value);
+  return orientation >= 1 && orientation <= 8 ? orientation : 1;
+}
+
+}  // namespace
+
+FormatReadResult read_heif(std::span<const std::uint8_t> bytes) {
+  const CoInitGuard com_guard;
+
+  ComPtr<IWICImagingFactory> factory;
+  HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_IWICImagingFactory,
+                                factory.put_void());
+  if (FAILED(hr) || !factory) {
+    throw std::runtime_error("Windows Imaging Component is unavailable (" + hresult_text(hr) + ")");
+  }
+
+  ComPtr<IWICStream> stream;
+  hr = factory->CreateStream(stream.put());
+  if (SUCCEEDED(hr)) {
+    // InitializeFromMemory does not copy; `bytes` stays alive for the whole decode.
+    hr = stream->InitializeFromMemory(const_cast<BYTE*>(bytes.data()), static_cast<DWORD>(bytes.size()));
+  }
+  if (FAILED(hr)) {
+    throw std::runtime_error("Unable to buffer the HEIF file (" + hresult_text(hr) + ")");
+  }
+
+  ComPtr<IWICBitmapDecoder> decoder;
+  hr = factory->CreateDecoderFromStream(stream.get(), nullptr, WICDecodeMetadataCacheOnDemand, decoder.put());
+  if (FAILED(hr) || !decoder) {
+    throw_decode_error(hr, /*container_opened*/ false);
+  }
+
+  UINT frame_count = 0;
+  if (FAILED(decoder->GetFrameCount(&frame_count))) {
+    frame_count = 1;
+  }
+
+  ComPtr<IWICBitmapFrameDecode> frame;
+  hr = decoder->GetFrame(0, frame.put());
+  if (FAILED(hr) || !frame) {
+    throw_decode_error(hr, /*container_opened*/ true);
+  }
+
+  UINT width = 0;
+  UINT height = 0;
+  hr = frame->GetSize(&width, &height);
+  if (FAILED(hr)) {
+    throw_decode_error(hr, /*container_opened*/ true);
+  }
+  constexpr std::uint64_t kMaxPixels = 268'435'456;  // 256 Mpx (a 1 GiB RGBA buffer)
+  if (width == 0 || height == 0 ||
+      static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) > kMaxPixels) {
+    throw std::runtime_error(PATCHY_TRANSLATE_NOOP("QObject", "This HEIF image's dimensions are not supported"));
+  }
+
+  const int orientation = read_heif_orientation(*frame.get());
+
+  double dpi_x = 0.0;
+  double dpi_y = 0.0;
+  if (FAILED(frame->GetResolution(&dpi_x, &dpi_y))) {
+    dpi_x = 0.0;
+    dpi_y = 0.0;
+  }
+
+  // Normalize to straight-alpha BGRA first (the converter accepts every native HEIF
+  // format, including the 8bpc view of 10-bit files), then color-correct to sRGB when the
+  // file embeds a profile.
+  ComPtr<IWICFormatConverter> converter;
+  hr = factory->CreateFormatConverter(converter.put());
+  if (SUCCEEDED(hr)) {
+    hr = converter->Initialize(frame.get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                               WICBitmapPaletteTypeCustom);
+  }
+  if (FAILED(hr)) {
+    throw_decode_error(hr, /*container_opened*/ true);
+  }
+  IWICBitmapSource* pixel_source = converter.get();
+  ComPtr<IWICColorTransform> color_transform;
+  if (create_srgb_transform(*factory.get(), *frame.get(), *pixel_source, color_transform)) {
+    pixel_source = color_transform.get();
+  }
+
+  const std::size_t stride = static_cast<std::size_t>(width) * 4U;
+  std::vector<std::uint8_t> bgra(stride * static_cast<std::size_t>(height));
+  hr = pixel_source->CopyPixels(nullptr, static_cast<UINT>(stride), static_cast<UINT>(bgra.size()), bgra.data());
+  if (FAILED(hr) && color_transform) {
+    // Some codec/profile combinations fail only at pixel delivery; retry unmanaged before
+    // concluding anything about missing codecs.
+    pixel_source = converter.get();
+    hr = pixel_source->CopyPixels(nullptr, static_cast<UINT>(stride), static_cast<UINT>(bgra.size()), bgra.data());
+  }
+  if (FAILED(hr)) {
+    throw_decode_error(hr, /*container_opened*/ true);
+  }
+
+  // BGRA -> RGBA in place, then apply the container orientation (unrotated files move the
+  // buffer straight through; a 48 MP phone photo should not pay a copy for nothing).
+  for (std::size_t offset = 0; offset + 3 < bgra.size(); offset += 4) {
+    std::swap(bgra[offset], bgra[offset + 2]);
+  }
+  OrientedImage oriented;
+  if (orientation == 1) {
+    oriented.width = static_cast<std::int32_t>(width);
+    oriented.height = static_cast<std::int32_t>(height);
+    oriented.rgba = std::move(bgra);
+  } else {
+    oriented = apply_exif_orientation(bgra, static_cast<std::int32_t>(width), static_cast<std::int32_t>(height),
+                                      orientation);
+    bgra.clear();
+    bgra.shrink_to_fit();
+  }
+
+  bool has_alpha = false;
+  for (std::size_t offset = 3; offset < oriented.rgba.size(); offset += 4) {
+    if (oriented.rgba[offset] != 0xFF) {
+      has_alpha = true;
+      break;
+    }
+  }
+
+  PixelBuffer pixels(oriented.width, oriented.height, has_alpha ? PixelFormat::rgba8() : PixelFormat::rgb8());
+  for (std::int32_t y = 0; y < oriented.height; ++y) {
+    const auto* source = oriented.rgba.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(oriented.width) * 4U;
+    auto row = pixels.row(y);
+    if (has_alpha) {
+      std::memcpy(row.data(), source, row.size());
+    } else {
+      for (std::int32_t x = 0; x < oriented.width; ++x) {
+        std::memcpy(row.data() + static_cast<std::size_t>(x) * 3U, source + static_cast<std::size_t>(x) * 4U, 3U);
+      }
+    }
+  }
+
+  FormatReadResult result;
+  result.document = Document(oriented.width, oriented.height, has_alpha ? PixelFormat::rgba8() : PixelFormat::rgb8());
+  if (dpi_x > 1.0 && dpi_y > 1.0 && !(dpi_x == 96.0 && dpi_y == 96.0)) {
+    result.document.print_settings().horizontal_ppi = dpi_x;
+    result.document.print_settings().vertical_ppi = dpi_y;
+  } else {
+    // WIC reports exactly 96x96 when the file records no density (its documented
+    // default), so that reading means "untagged" and follows Photoshop's 72 PPI
+    // convention. A HEIC genuinely tagged 96x96 is indistinguishable and gets the
+    // same treatment; iPhone files carry EXIF 72 and are unaffected.
+    result.document.print_settings().horizontal_ppi = 72.0;
+    result.document.print_settings().vertical_ppi = 72.0;
+  }
+  result.document.add_pixel_layer("Background", std::move(pixels));
+  if (frame_count > 1) {
+    result.notices.push_back("Opened the primary image only (" + std::to_string(frame_count) +
+                             " images in the file)");
+  }
+  return result;
+}
+
+}  // namespace patchy::heif

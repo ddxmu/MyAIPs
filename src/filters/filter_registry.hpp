@@ -1,0 +1,279 @@
+#pragma once
+
+#include "core/layer.hpp"
+
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
+
+namespace patchy {
+
+using FilterParameterValue =
+    std::variant<std::int64_t, double, bool, std::string>;
+using FilterParameterMap =
+    std::map<std::string, FilterParameterValue, std::less<>>;
+
+struct FilterInvocation {
+  std::string filter_id;
+  std::uint32_t schema_version{1};
+  FilterParameterMap parameters;
+  RgbColor foreground{};
+  RgbColor background{255, 255, 255};
+};
+
+struct FilterRecipeEntry {
+  FilterInvocation invocation;
+  bool enabled{true};
+  double opacity{1.0};
+  BlendMode blend_mode{BlendMode::Normal};
+};
+
+struct FilterRecipe {
+  std::vector<FilterRecipeEntry> entries;
+};
+
+// Whether a recipe / Smart Filter blend step supports this blend mode. Every
+// mode qualifies except two structural ones: PassThrough is a group concept,
+// and Dissolve is a coverage decision rather than a colour function, which the
+// integer-weight blend loops in filter_registry.cpp and
+// smart_filter_renderer.cpp do not model.
+//
+// Deliberately an exhaustive switch rather than an ordinal range. It used to be
+// `Normal <= mode <= Divide`, duplicated in filter_look_library.cpp, and went
+// stale as soon as the enum grew: the combos offered Vivid Light and friends
+// and the guard then silently rejected them. -Wswitch now forces a decision for
+// every appended mode. The trailing return also rejects out-of-range values,
+// which matters because this guard reads persisted Saved Look data.
+[[nodiscard]] inline bool recipe_blend_mode_supported(BlendMode mode) noexcept {
+  switch (mode) {
+    case BlendMode::PassThrough:
+    case BlendMode::Dissolve:
+      return false;
+    case BlendMode::Normal:
+    case BlendMode::Multiply:
+    case BlendMode::Screen:
+    case BlendMode::Overlay:
+    case BlendMode::Darken:
+    case BlendMode::Lighten:
+    case BlendMode::ColorDodge:
+    case BlendMode::ColorBurn:
+    case BlendMode::HardLight:
+    case BlendMode::SoftLight:
+    case BlendMode::Difference:
+    case BlendMode::LinearBurn:
+    case BlendMode::PinLight:
+    case BlendMode::Saturation:
+    case BlendMode::Luminosity:
+    case BlendMode::Exclusion:
+    case BlendMode::Hue:
+    case BlendMode::Color:
+    case BlendMode::LinearDodge:
+    case BlendMode::Subtract:
+    case BlendMode::Divide:
+    case BlendMode::VividLight:
+    case BlendMode::LinearLight:
+    case BlendMode::HardMix:
+    case BlendMode::DarkerColor:
+    case BlendMode::LighterColor:
+      return true;
+  }
+  return false;
+}
+
+enum class FilterCategory {
+  Uncategorized,
+  Adjustment,
+  PhotoLooks,
+  Blur,
+  Sharpen,
+  Distort,
+  Noise,
+  Pixelate,
+  Stylize,
+  Render,
+  Artistic
+};
+
+enum class FilterParameterKind { Integer, Double, Boolean, Option };
+
+enum class FilterParameterUnit { None, Percent, Pixels, Degrees };
+
+enum class FilterSpatialScale { None, Pixels };
+
+// Optional semantic/presentation hints for catalog-generated controls. These
+// do not affect persistence: parameter keys and values remain authoritative.
+enum class FilterParameterPresentation {
+  Standard,
+  Angle,
+  CenterXPercent,
+  CenterYPercent,
+  EffectRadiusPercent,
+  WaveAmplitude,
+  WaveWavelength,
+  WavePhase,
+  TiltFocusHalfWidthPercent,
+  TiltTransitionWidthPercent,
+  IrisWidthPercent,
+  IrisHeightPercent
+};
+
+struct FilterParameterOption {
+  std::string value;
+  std::string display_name;
+};
+
+struct FilterParameterDefinition {
+  std::string key;
+  std::string display_name;
+  std::string control_object_name;
+  FilterParameterKind kind{FilterParameterKind::Integer};
+  FilterParameterValue default_value{std::int64_t{0}};
+  std::optional<double> minimum{};
+  std::optional<double> maximum{};
+  std::optional<double> step{};
+  FilterParameterUnit unit{FilterParameterUnit::None};
+  FilterSpatialScale spatial_scale{FilterSpatialScale::None};
+  std::vector<FilterParameterOption> options{};
+  FilterParameterPresentation presentation{
+      FilterParameterPresentation::Standard};
+  // Optional compact range for linked sliders and other coarse visual
+  // controls. Typed values, normalization, recipes, and persistence always
+  // use minimum/maximum above.
+  std::optional<double> practical_minimum{};
+  std::optional<double> practical_maximum{};
+};
+
+enum class FilterProgressStage {
+  Filtering,
+  Blurring,
+  Sharpening,
+  DetectingEdges,
+  Distorting,
+  Twisting,
+  Embossing,
+  GeneratingClouds,
+  Pixelating,
+  RenderingHalftone,
+  AddingGrain,
+  ApplyingVignette
+};
+
+struct FilterProgress {
+  std::function<bool(int completed, int total, FilterProgressStage stage)>
+      update;
+};
+
+class FilterCancelled final : public std::runtime_error {
+public:
+  FilterCancelled();
+};
+
+struct FilterRenderResult {
+  PixelBuffer pixels;
+  Rect bounds{};
+};
+
+struct FilterRecipeRenderTrace {
+  // One entry per recipe item, including disabled and zero-opacity items. Each
+  // rectangle is the document-space buffer that item would receive.
+  std::vector<Rect> entry_input_bounds;
+};
+
+class FilterRegistry;
+
+using PixelFilterFn = std::function<void(PixelBuffer &)>;
+using ParameterizedPixelFilterFn =
+    std::function<void(const FilterRegistry &, const FilterInvocation &,
+                       PixelBuffer &, const FilterProgress *)>;
+using FilterOutputMarginFn = std::function<int(
+    const FilterInvocation &, std::int32_t width, std::int32_t height)>;
+using FilterTranslationSupportFn =
+    std::function<std::optional<int>(const FilterInvocation &)>;
+
+struct FilterCatalogMetadata {
+  FilterCategory category{FilterCategory::Uncategorized};
+  bool adjustment_only{false};
+  // Generative filters (Clouds) render across the whole document like
+  // Photoshop instead of only the layer's content rectangle. The UI wrapper,
+  // not the registry, performs that canvas embed.
+  bool fills_entire_canvas{false};
+  std::uint32_t schema_version{1};
+  std::vector<FilterParameterDefinition> parameters;
+  ParameterizedPixelFilterFn execute;
+  FilterOutputMarginFn output_margin;
+  FilterTranslationSupportFn translation_support;
+};
+
+struct FilterDefinition {
+  std::string identifier;
+  std::string display_name;
+  PixelFilterFn apply;
+  FilterCatalogMetadata catalog;
+};
+
+class FilterRegistry {
+public:
+  void register_filter(FilterDefinition filter);
+  [[nodiscard]] const FilterDefinition *
+  find(std::string_view identifier) const noexcept;
+  [[nodiscard]] const std::vector<FilterDefinition> &filters() const noexcept;
+
+  // Compatibility path. This deliberately keeps each original built-in
+  // implementation and its historical output; it does not redirect through the
+  // catalog defaults.
+  void apply(std::string_view identifier, PixelBuffer &pixels) const;
+
+  [[nodiscard]] FilterInvocation
+  default_invocation(std::string_view identifier, RgbColor foreground = {},
+                     RgbColor background = {255, 255, 255}) const;
+  [[nodiscard]] bool supports(const FilterInvocation &invocation) const;
+  [[nodiscard]] std::optional<FilterInvocation>
+  normalize(const FilterInvocation &invocation) const;
+  [[nodiscard]] std::optional<FilterInvocation>
+  scale(const FilterInvocation &invocation, double spatial_scale) const;
+  [[nodiscard]] std::optional<FilterRecipe>
+  scale(const FilterRecipe &recipe, double spatial_scale) const;
+  void apply(const FilterInvocation &invocation, PixelBuffer &pixels,
+             const FilterProgress *progress = nullptr) const;
+
+  [[nodiscard]] bool supports(const FilterRecipe &recipe) const;
+  void apply(const FilterRecipe &recipe, PixelBuffer &pixels,
+             const FilterProgress *progress = nullptr) const;
+
+  [[nodiscard]] int output_margin(const FilterInvocation &invocation,
+                                  std::int32_t width,
+                                  std::int32_t height) const;
+  [[nodiscard]] std::optional<int>
+  translation_invariant_support(const FilterInvocation &invocation) const;
+  [[nodiscard]] std::optional<int>
+  translation_invariant_support(const FilterRecipe &recipe) const;
+  [[nodiscard]] FilterRenderResult
+  render(const FilterInvocation &invocation, const PixelBuffer &original,
+         Rect bounds, bool allow_output_expansion = true,
+         const FilterProgress *progress = nullptr) const;
+  [[nodiscard]] FilterRenderResult
+  render(const FilterRecipe &recipe, const PixelBuffer &original, Rect bounds,
+         bool allow_output_expansion = true,
+         const FilterProgress *progress = nullptr,
+         FilterRecipeRenderTrace *trace = nullptr) const;
+
+private:
+  std::vector<FilterDefinition> filters_;
+};
+
+void register_builtin_filters(FilterRegistry &registry);
+
+// Crops fully transparent borders from `buffer`, returning the trimmed
+// document-space rectangle. A fully transparent buffer collapses to
+// `empty_result_bounds` when that rectangle lies inside `bounds`; buffers
+// without an alpha channel are returned unchanged.
+[[nodiscard]] Rect trim_transparent_border(PixelBuffer &buffer, Rect bounds,
+                                           Rect empty_result_bounds);
+
+} // namespace patchy

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Testy - runs</title>
+<style>
+  :root { --bg:#14161a; --panel:#1d2026; --text:#d8dade; --dim:#8b8f98; --line:#2e323a;
+          --good:#4fc26b; --warn:#d9a13c; --accent:#5aa2e0; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  header { padding:16px 26px; border-bottom:1px solid var(--line); }
+  h1 { font-size:18px; margin:0; }
+  h1 span { color:var(--dim); font-weight:400; }
+  main { padding:18px 26px; max-width:1100px; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { border:1px solid var(--line); padding:8px 12px; text-align:left; }
+  th { background:var(--panel); }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .live { color:var(--warn); }
+  .scores { color:var(--dim); font-size:12.5px; }
+  .latest { background:var(--panel); }
+  .hint { color:var(--dim); margin-top:14px; font-size:12.5px; }
+  #new-run { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+             padding:14px 18px; margin-bottom:22px; }
+  #new-run h2 { margin:0 0 8px; font-size:15px; }
+  #run-files { width:100%; min-height:180px; background:var(--bg); color:var(--text);
+               border:1px solid var(--line); border-radius:6px; padding:8px 10px;
+               font:12px Consolas, monospace; box-sizing:border-box; white-space:pre; }
+  #new-run .row { display:flex; gap:18px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  #new-run label { font-size:13px; display:flex; gap:5px; align-items:center; }
+  #new-run input[type=number] { width:56px; background:var(--bg); color:var(--text);
+               border:1px solid var(--line); border-radius:4px; padding:3px 6px; }
+  #new-run select { background:var(--bg); color:var(--text); border:1px solid var(--line);
+               border-radius:4px; padding:3px 6px; font-size:13px; }
+  #start-run, #cancel-run, #pause-run, #resume-run, #delete-runs { background:var(--accent);
+               border:0; color:#0d0e10; font-weight:600; padding:7px 18px; border-radius:6px;
+               cursor:pointer; font-size:13px; }
+  #start-run:disabled, #pause-run:disabled, #delete-runs:disabled { background:var(--line);
+               color:var(--dim); cursor:default; }
+  th.sel, td.sel { width:30px; text-align:center; }
+  #runs-toolbar { display:flex; gap:12px; align-items:center; margin:0 0 10px; }
+  #run-errors { color:#d95c4a; font-size:12.5px; margin-top:8px; white-space:pre-line; }
+  #run-skipped { color:var(--warn); font-size:12.5px; margin-top:8px; white-space:pre-line; }
+  #run-note { color:var(--good); font-size:12.5px; margin-top:8px; }
+</style>
+</head>
+<body>
+<header><h1>Testy <span>PSD compatibility runs</span></h1></header>
+<main>
+  <section id="new-run">
+    <h2>New run</h2>
+    <textarea id="run-files" spellcheck="false"
+      placeholder="one absolute .psd path per line - paste your own list here"></textarea>
+    <div class="row">
+      <span id="editor-boxes"></span>
+      <label><input type="checkbox" id="opt-build" checked> rebuild Patchy first</label>
+      <label><input type="checkbox" id="opt-fresh"> ignore caches</label>
+      <label title="keep images only for files that fail or differ from Photoshop by more than the threshold"><input type="checkbox" id="opt-scan"> scan: keep only flagged, over
+        <input type="number" id="opt-scan-threshold" value="10" min="0" max="100" step="1"> % diff</label>
+      <label title="which comparison drives flagging; the report always shows both numbers">compare
+        <select id="opt-compare">
+          <option value="perceptual" selected>perceptual (structure + color)</option>
+          <option value="strict">byte match (pixels over 6/255)</option>
+        </select></label>
+      <button id="start-run" onclick="startRun()">Start run</button>
+      <button id="pause-run" onclick="pauseRun()" style="display:none; background:var(--warn);">Pause run</button>
+      <button id="cancel-run" onclick="cancelRun()" style="display:none; background:#d95c4a;">Cancel run</button>
+      <button id="resume-run" onclick="resumeRun()" style="display:none; background:var(--good);">Resume</button>
+      <span id="run-state-note" class="scores"></span>
+    </div>
+    <div id="run-errors"></div>
+    <div id="run-skipped"></div>
+    <div id="run-note"></div>
+  </section>
+  <div id="runs-toolbar">
+    <button id="delete-runs" onclick="deleteRuns()" disabled>Delete selected</button>
+    <span id="delete-note" class="scores"></span>
+  </div>
+  <table><thead><tr><th class="sel"><input type="checkbox" id="sel-all"
+    onchange="toggleAll(this.checked)" title="select all / none"></th>
+  <th>Run</th><th>Files</th><th>Patchy</th><th>Editors (byte match / kept in .psd save)</th></tr></thead>
+  <tbody id="rows"><tr><td colspan="5">loading...</td></tr></tbody></table>
+  <div class="hint">Newest first; the top row links to the latest run. A run without scores is
+  still in progress (its dashboard updates live). Pause stops a run at the next checkpoint and
+  keeps everything finished so far; Resume continues it (it survives restarts and reboots, and
+  works for interrupted runs too). Delete removes the selected runs' directories, deleting only
+  the exact files Testy wrote (anything unexpected is left in place and reported); runs whose
+  directory is already gone are simply removed from this list.</div>
+</main>
+<script>
+"use strict";
+function pct(x) { return (100 * x).toFixed(0) + "%"; }
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+async function fetchLines(url) {
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return [];
+    return (await response.text()).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+  } catch (e) { return []; }
+}
+
+async function loadDefaults() {
+  try {
+    const response = await fetch("/testy-defaults", { cache: "no-store" });
+    if (!response.ok) return;
+    const defaults = await response.json();
+    document.getElementById("run-files").value = defaults.files.join("\n");
+    document.getElementById("editor-boxes").innerHTML = defaults.allEditors.map(key =>
+      "<label><input type='checkbox' class='editor-box' value='" + esc(key) + "'" +
+      (defaults.editors.includes(key) ? " checked" : "") + "> " + esc(key) + "</label>"
+    ).join(" ");
+  } catch (e) { /* server-less viewing of a copied page */ }
+}
+
+// The New run box remembers what the last started run used (file list and options),
+// so tweak-and-rerun does not mean re-pasting; the configured defaults only fill a
+// form no run was started from yet.
+function saveRunForm() {
+  try {
+    localStorage.setItem("testyNewRun", JSON.stringify({
+      files: document.getElementById("run-files").value,
+      editors: [...document.querySelectorAll(".editor-box:checked")].map(b => b.value),
+      build: document.getElementById("opt-build").checked,
+      fresh: document.getElementById("opt-fresh").checked,
+      scan: document.getElementById("opt-scan").checked,
+      scanThreshold: document.getElementById("opt-scan-threshold").value,
+      compare: document.getElementById("opt-compare").value,
+    }));
+  } catch (e) { /* storage unavailable; defaults still work */ }
+}
+
+function restoreRunForm() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("testyNewRun")); } catch (e) {}
+  if (!saved) return;
+  if (saved.files) document.getElementById("run-files").value = saved.files;
+  if (Array.isArray(saved.editors) && saved.editors.length)
+    document.querySelectorAll(".editor-box").forEach(box => {
+      box.checked = saved.editors.includes(box.value);
+    });
+  document.getElementById("opt-build").checked = !!saved.build;
+  document.getElementById("opt-fresh").checked = !!saved.fresh;
+  document.getElementById("opt-scan").checked = !!saved.scan;
+  if (saved.scanThreshold) document.getElementById("opt-scan-threshold").value = saved.scanThreshold;
+  if (saved.compare === "strict" || saved.compare === "perceptual")
+    document.getElementById("opt-compare").value = saved.compare;
+}
+
+let runInProgress = false;
+let runState = null;
+
+async function refreshRunState() {
+  try {
+    const response = await fetch("/testy-run-state", { cache: "no-store" });
+    if (!response.ok) return;
+    const state = await response.json();
+    runState = state;
+    runInProgress = state.running;
+    document.getElementById("start-run").disabled = state.running;
+    document.getElementById("cancel-run").style.display = state.running ? "" : "none";
+    const pauseButton = document.getElementById("pause-run");
+    pauseButton.style.display = state.running ? "" : "none";
+    pauseButton.disabled = !!state.pausePending;
+    pauseButton.textContent = state.pausePending ? "Pausing..." : "Pause run";
+    const resumable = !state.running && state.resumable;
+    const resumeButton = document.getElementById("resume-run");
+    resumeButton.style.display = resumable ? "" : "none";
+    if (resumable) resumeButton.textContent = "Resume " + state.resumable.run;
+    document.getElementById("run-state-note").textContent =
+      state.running
+        ? (state.pausePending
+            ? "pausing - the run stops after the current step (everything done so far is kept)"
+            : "a run is in progress (watch it in the table below)")
+        : (resumable
+            ? "run " + state.resumable.run + " is " + state.resumable.state +
+              " and can be resumed where it left off"
+            : "");
+    if (!state.running) {
+      const note = document.getElementById("run-note");
+      if (note.dataset.pending === "1") { note.textContent = ""; note.dataset.pending = ""; }
+    }
+  } catch (e) { /* no server */ }
+}
+
+function pauseRun() {
+  const button = document.getElementById("pause-run");
+  button.disabled = true;
+  button.textContent = "Pausing...";
+  fetch("/testy-pause-run", { method: "POST" }).then(async response => {
+    const result = await response.json();
+    if (!response.ok)
+      document.getElementById("run-errors").textContent =
+        (result.errors || ["pause failed"]).join("\n");
+    refreshRunState();
+  }).catch(error => {
+    document.getElementById("run-errors").textContent = "pause failed: " + error;
+  });
+}
+
+function resumeRun() {
+  const errorsDiv = document.getElementById("run-errors");
+  errorsDiv.textContent = "";
+  const body = runState && runState.resumable ? { run: runState.resumable.run } : {};
+  fetch("/testy-resume-run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(async response => {
+    const result = await response.json();
+    if (response.ok && result.resumed) {
+      const note = document.getElementById("run-note");
+      note.textContent = "resuming " + result.run + " - it continues where it left off";
+      note.dataset.pending = "1";
+      refreshRunState();
+      refresh();
+    } else {
+      errorsDiv.textContent = (result.errors || ["resume failed"]).join("\n");
+    }
+  }).catch(error => { errorsDiv.textContent = "resume failed: " + error; });
+}
+
+function cancelRun() {
+  fetch("/testy-cancel-run", { method: "POST" }).then(async response => {
+    const result = await response.json();
+    const note = document.getElementById("run-note");
+    note.textContent = result.canceled ? "run canceled" : (result.errors || []).join("; ");
+    note.dataset.pending = "";
+    refreshRunState();
+    refresh();
+  }).catch(error => {
+    document.getElementById("run-errors").textContent = "cancel failed: " + error;
+  });
+}
+
+// Selected run names survive the 5s table re-renders; refresh() prunes names that
+// are no longer listed.
+let selectedRuns = new Set();
+
+function toggleRun(box) {
+  if (box.checked) selectedRuns.add(box.value); else selectedRuns.delete(box.value);
+  updateDeleteButton();
+}
+
+function toggleAll(checked) {
+  document.querySelectorAll(".run-box").forEach(box => {
+    if (box.disabled) return;
+    box.checked = checked;
+    if (checked) selectedRuns.add(box.value); else selectedRuns.delete(box.value);
+  });
+  updateDeleteButton();
+}
+
+function updateDeleteButton() {
+  const button = document.getElementById("delete-runs");
+  button.disabled = selectedRuns.size === 0;
+  button.textContent = selectedRuns.size
+    ? "Delete " + selectedRuns.size + " selected" : "Delete selected";
+  const boxes = [...document.querySelectorAll(".run-box")].filter(b => !b.disabled);
+  document.getElementById("sel-all").checked = boxes.length > 0 && boxes.every(b => b.checked);
+}
+
+function deleteRuns() {
+  const names = [...selectedRuns];
+  const note = document.getElementById("delete-note");
+  if (!names.length) return;
+  if (!confirm("Delete " + names.length + " run(s), including their reports and saved images?\n" +
+               "Only files Testy itself wrote are removed; anything unexpected is left in place."))
+    return;
+  fetch("/testy-delete-runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runs: names }),
+  }).then(async response => {
+    const result = await response.json();
+    if (!response.ok) {
+      note.style.color = "var(--warn)";
+      note.textContent = (result.errors || ["delete failed"]).join("; ");
+      return;
+    }
+    const bits = [];
+    if (result.deleted.length) bits.push("deleted " + result.deleted.length + " run(s)");
+    if (result.missing.length) bits.push(result.missing.length + " already gone (unlisted)");
+    if (result.partial.length) bits.push(result.partial.length + " partly deleted");
+    result.warnings.forEach(w => bits.push(w));
+    result.errors.forEach(e => bits.push(e));
+    note.style.color = result.errors.length || result.warnings.length ? "var(--warn)" : "var(--good)";
+    note.textContent = bits.join(" - ") || "nothing deleted";
+    selectedRuns.clear();
+    refresh();
+  }).catch(error => {
+    note.style.color = "var(--warn)";
+    note.textContent = "delete failed: " + error;
+  });
+}
+
+// Paths the server left out of the run (missing files, non-PSD lines). They are a
+// warning, not a failure: a long pasted list usually has a few stale entries, so the
+// run starts without them rather than making the list be hand-pruned first. Only the
+// first few are spelled out; the server log has them all.
+function skippedText(skipped) {
+  if (!skipped || !skipped.length) return "";
+  const shown = skipped.slice(0, 8);
+  const rest = skipped.length - shown.length;
+  return ["skipped " + skipped.length + " unusable path(s):"].concat(shown)
+    .concat(rest > 0 ? ["... and " + rest + " more (see the Testy console)"] : []).join("\n");
+}
+
+function startRun() {
+  const files = document.getElementById("run-files").value
+    .split("\n").map(l => l.trim()).filter(Boolean);
+  const editors = [...document.querySelectorAll(".editor-box:checked")].map(b => b.value);
+  const errorsDiv = document.getElementById("run-errors");
+  const skippedDiv = document.getElementById("run-skipped");
+  const note = document.getElementById("run-note");
+  errorsDiv.textContent = "";
+  skippedDiv.textContent = "";
+  note.textContent = "";
+  fetch("/testy-start-run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      files, editors,
+      skipBuild: !document.getElementById("opt-build").checked,
+      fresh: document.getElementById("opt-fresh").checked,
+      scan: document.getElementById("opt-scan").checked,
+      scanThreshold: parseFloat(document.getElementById("opt-scan-threshold").value),
+      compare: document.getElementById("opt-compare").value,
+    }),
+  }).then(async response => {
+    const result = await response.json();
+    skippedDiv.textContent = skippedText(result.skipped);
+    if (response.ok && result.started) {
+      saveRunForm();
+      note.textContent = "run started on " + result.files + " file(s)" +
+        " - it will appear at the top of the table in a few seconds";
+      note.dataset.pending = "1";
+      refreshRunState();
+    } else {
+      errorsDiv.textContent = (result.errors || ["start failed"]).join("\n");
+    }
+  }).catch(error => { errorsDiv.textContent = "start failed: " + error; });
+}
+
+async function refresh() {
+  refreshRunState();
+  const started = await fetchLines("runs/index.jsonl");
+  const finished = await fetchLines("runs/history.jsonl");
+  const byName = new Map();
+  started.forEach(entry => byName.set(entry.run, { run: entry.run }));
+  finished.forEach(entry => byName.set(entry.run, entry));
+  const runs = [...byName.values()].sort((a, b) => b.run.localeCompare(a.run));
+  const known = new Set(runs.map(r => r.run));
+  selectedRuns = new Set([...selectedRuns].filter(name => known.has(name)));
+  const rows = document.getElementById("rows");
+  if (!runs.length) {
+    rows.innerHTML = "<tr><td colspan='5'>no runs yet - start one with testy.py</td></tr>";
+    updateDeleteButton();
+    return;
+  }
+  rows.innerHTML = runs.map((r, index) => {
+    const done = r.editors != null;
+    const patchy = done && r.editors.patchy
+      ? pct(r.editors.patchy.render) + " / " + pct(r.editors.patchy.native) : "";
+    // Only the newest history-less run can actually be live (runs never overlap),
+    // and only while the server says one is running; the rest were killed/canceled.
+    const others = done
+      ? Object.keys(r.editors).filter(k => k !== "patchy").map(k =>
+          esc(k) + " " + pct(r.editors[k].render) + "/" + pct(r.editors[k].native)).join(" &middot; ")
+      : (index === 0 && runInProgress
+          ? '<span class="live">' + (runState && runState.pausePending ? "pausing..." : "in progress...") + '</span>'
+          : (runState && runState.resumable && runState.resumable.run === r.run
+              ? '<span class="live">' + esc(runState.resumable.state) + " - resumable</span>"
+              : '<span class="scores">incomplete</span>'));
+    const live = index === 0 && runInProgress;
+    return "<tr" + (index === 0 ? " class='latest'" : "") + "><td class='sel'>" +
+      "<input type='checkbox' class='run-box' value='" + esc(r.run) + "'" +
+      (selectedRuns.has(r.run) ? " checked" : "") +
+      (live ? " disabled title='the live run cannot be deleted'" : "") +
+      " onchange='toggleRun(this)'></td><td><a href='runs/" + esc(r.run) +
+      "/report.html'>" + esc(r.run) + "</a></td><td>" + (r.files ?? "") +
+      "</td><td>" + patchy + "</td><td class='scores'>" + others + "</td></tr>";
+  }).join("");
+  updateDeleteButton();
+}
+loadDefaults().then(restoreRunForm);
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

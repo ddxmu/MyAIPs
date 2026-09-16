@@ -1,0 +1,153 @@
+# File formats: registry, per-format quirks, PSB, document alpha
+
+Read before changing format I/O, open/save filters, notices, or alpha/mask import.
+
+## Registry and dispatch
+
+- `builtin_format_registry()` (format_registry.cpp, function-local static) is the single instance. `load_document_from_path` (main_window.cpp) consults it BEFORE the QImageReader fallback; a throwing registry read still falls back to Qt where a Qt plugin exists, but if Qt also fails the REGISTRY error is reported. Handlers may be read-only (`write == nullptr`) and may carry a `sniff` check; sniffing disambiguates `.ase` (Aseprite magic 0xA5E0 at offset 4 vs Adobe `ASEF` swatches; the error points swatch files at the Palette panel).
+- One filter table: `file_format_entries()` (main_window_files.cpp) generates open/save/export filters, `is_supported_image_extension`, `save_file_filter_for_path`, and `path_with_default_extension`. Display names sit in `QT_TRANSLATE_NOOP("QObject", ...)` and are shown through `translate_data_text`; run `scripts\update-translations.ps1` and fill every catalog when adding one ([localization.md](localization.md)).
+- A new format needs one table row, one registry row, one writer branch.
+
+## Open-dialog filter contract
+
+Open, sprite-sheet, and image-sequence dialogs pass `FilterNameDetails::Hidden` through `get_open_file_names`. File > Open (and the Open Recent Folder entries) is multi-select: each picked file opens as its own document in dialog order and the last one is active, the same loop a multi-file drop runs (`ui_open_dialog_opens_every_selected_file`). Qt shows only the text left of the last `(` and uses the final parenthesized list as the machine filter, so `open_file_filter()` writes each row as `Name (patterns) (patterns)`. The duplication is deliberate: the machine-readable patterns are the LAST parenthesized list, the rest is the visible name.
+
+The visible portion must keep a `*.` token. The Windows 11 native dialog appends the complete semicolon-joined pattern list to any filter name without one, so the all-formats row uses the short `(*.psd *.png *.jpg and more)` hint instead of ~50 patterns. `ui_open_dialog_hides_name_filter_details` pins the shape.
+
+Desktop file drops copy the accepted local paths and queue processing on the main
+window after the drop handler returns. Never enter import dialogs or decode files
+inside the native drop callback: Windows Explorer waits for that callback and
+would remain blocked for the lifetime of a RAW or PDF dialog. Main-window, canvas,
+tab-area, and floating-window drops share this path. Files retain their drop order;
+cancelling one import still permits the remaining files to open. Destroying or
+closing the main window before delivery discards the queued work.
+
+## Per-format catalogue
+
+Everything reads AND writes except camera raw, HEIF/HEIC, and .af (read-only); JPEG XR reads and writes on Windows only. Modules live in src/formats/, Qt-free, explicit-endian via `binary_le.hpp` (LE) or `psd_binary.hpp` (BE).
+
+- PSD/PSB: PSB section below plus [ps-compat.md](ps-compat.md); 16/32-bit files convert to 8-bit on import (section below).
+- BMP: includes 32-bit `BI_RGB`/compression 0, whose 4th byte Patchy keeps (feeds document-alpha import below).
+- ICO/CUR: every embedded size imports as a hidden layer named "WxH"; the writer reuses a matching "WxH" pixel layer verbatim, so sizes round-trip. 256px entries are PNG-compressed via `ico::set_png_codec` (installed in the MainWindow ctor). CUR hotspots ride layer metadata `patchy.cursor_hotspot`.
+- TGA: types 1/2/3/9/10/11, both origin flags; 15/16-bit rejected; palette-mode documents write type 1 indexed.
+- GIF: Patchy-owned encoder for single frames and animations; reading stays with Qt's qgif, so the Windows package must ship `imageformats/qgif.dll` (build-release.bat `CopyRequiredImageFormatPlugins`). Opening a 2+ frame GIF imports every frame as a visible layer, frame 1 on TOP (the reverse of the sequence/sprite-sheet convention, so open-then-save round-trips), each delay stamped as a trailing seconds token ("Frame 3 0.4s") that the animated save parses back (`gif::format_delay_seconds_token` / `parse_layer_name_delay_cs`; other animated formats and the pattern library stay first-frame-only). Save As / Export .gif on a 2+ layer document raises `prompt_gif_save_options` (animation from visible layers vs single flattened image, default frame delay; keys `saveOptions/gifSaveMode`, `saveOptions/gifFrameDelayCs`; an explicit animation choice skips the flatten warning but keeps save-a-copy semantics); File > Export Layers as Animated GIF is the always-animation form and stays visible on wasm. Animated writes (`write_animated_gif_file`): visible top-level layers top to bottom through `render_layer_isolated`, per-frame quantization (`indexed_rgba8_quantized`/`indexed_rgba8_with_palette`), NETSCAPE2.0 loop forever, disposal restore-to-background, global color table = frame 1 with local tables for later frames, no dithering. LZW width growth uses the pre-increment check; `gif_encoder_bytes_are_stable` pins the single-frame bytes, which the animation path never touches. The layers panel's film button previews the animation in-app (see [layer-panel.md](layer-panel.md)).
+- Aseprite: frame 1 only; layer tree/blend modes/opacity round-trip; zlib cels via vendored `src/formats/miniz/`; verified against the real Aseprite CLI. Aseprite is the layered alternative in Save As.
+- PCX: 8-bit indexed EOF-palette plus 24-bit 3-plane RLE.
+- ILBM/PBM: ByteRun1 via the shared `psd::decode_packbits`/`encode_packbits_row` (psd_descriptor.{hpp,cpp}); EHB supported, HAM rejected; writer emits planar ILBM with masking type 2.
+- PNG/JPEG/TIFF/WebP: Qt readers/writers. WebP has its own options dialog: quality (`saveOptions/webpQuality`, default 75 = Qt's own) and lossless (`saveOptions/webpLossless`, sent as quality 100, which Qt's plugin encodes losslessly).
+- JPEG XR (.jxr/.wdp/.hdp): read AND write through the in-box WIC codec, Windows only (no Store package, no vendored codec); the filter row is gated on `jxr::is_available()` so no other platform offers it, and the registry row carries a WRITER, which is what keeps Save on .jxr instead of routing to Save As. Float/HDR frames (NVIDIA captures are 32-bit float scRGB) tone map to 8-bit with a knee curve rather than clamping. Full record, including the curve calibration and why a filmic curve was rejected: [jxr.md](jxr.md).
+- Proton `.rttex` (Seth's Proton SDK textures): read and write everywhere. An optional RTPACK zlib wrapper around raw 8888/888/4444/565 pixels stored bottom-up at a power-of-two padded size, or an embedded JPEG (alpha-free images only); opens at the true size; PVRTC rejected. Options, session-metadata prefill, and the RTPack parity table: [rttex.md](rttex.md).
+
+## Camera raw (CR2/CR3/NEF/ARW/RAF/DNG, ...)
+
+Read-only LibRaw import through `raw_document_io.{hpp,cpp}`. Decoder, precision,
+licensing, per-photo sidecars, defaults, and tests: [camera-raw.md](camera-raw.md).
+The dialog refines drafts into accurate previews and saves adjustments beside
+the source. Automated filename opens read those sidecars without writing them.
+
+## HEIF/HEIC (.heic/.heif/.hif)
+
+Read-only; decoded only by an OS- or browser-supplied decoder. **Never ship a software HEVC decoder or encoder**: the reviewed patent boundary in [legal-constraints.md](legal-constraints.md). Encoding stays impossible everywhere: no registry writer and `write_flat_image_file` rejects HEIF extensions (a QImageWriter plugin could otherwise encode HEVC silently). Implementation details live in `heif_document_io.{hpp,cpp}` + per-OS variants; ftyp-brand sniff, HEVC brands only, AVIF rejected.
+
+- Windows (the real decoder): WIC via the Store's HEIF + HEVC packages. A stub codec is ALWAYS registered, so availability cannot be enumerated: attempt the decode and map failures (component-not-found at creation = HEIF package missing; codec-not-found at pixel request = HEVC package missing). These errors carry `heif::k*PackageMissingMarker` prefixes that the open-failed box turns into an "Open Microsoft Store" button. WIC returns UNROTATED pixels; apply `heif::apply_exif_orientation`. ICC (iPhone = Display P3) converts to sRGB via `IWICColorTransform`.
+- macOS/Linux: `read_heif` always throws; the QImageReader fallback decodes (qmacheif / kimg_heif). kimg_heif ATTACHES P3 without converting, so the fallback bakes heif-family images to sRGB via `convertToColorSpace` (scoped to heif).
+- Browser WASM: vendored libheif 1.23.1 parses (`webcodecs` plug-in only); the browser `VideoDecoder` decodes after `isConfigSupported()` with the file's `hvc1.*` profile; deliberately no fallback decoder, and never gate on browser name/version. libheif links only into `wasm-release`; NOTICE-THIRD-PARTY.md records the LGPL details.
+- Flatpak: HEVC decode lives in `org.freedesktop.Platform.ffmpeg-full//24.08`; single-file BUNDLE installs never auto-pull it (verified 2026-07), so the error dialog shows the install command (packaging/linux/README.md). The remote Linux test machine [SKIP]s heif tests.
+- Tests: statistics only, never byte pins (lossy HEVC + per-platform CMS); [SKIP] on known codec-unavailable messages, hard-fail otherwise. `ui_heif_open_is_read_only_if_available` needs the repeating-QTimer dismisser via `reject()` so the Store button can never fire.
+
+## .af (Affinity)
+
+Read-only importer; registry id `patchy.formats.af`, sniff on magic `00 FF 4B 41`; the filter row claims `.af` plus 2.x `.afphoto/.afdesign/.afpub`. The full format record (container/FAT resolution, legal method boundary, tier model, placement/vector/text/effects mapping, blend-mode approximations, Erase folding, fixtures) moved to [af-format.md](af-format.md); field-level wire layouts are documented in af_document_io.cpp beside each parser.
+
+## PDF
+
+Import and export (flat and editable-layers modes) live in [pdf.md](pdf.md). PDF has no registry row and is a read-only source; the filter-string and save-guard rules below still apply to it.
+
+## Layered documents and flat formats (the Photoshop-style save guard)
+
+A document opened from a flat format that has grown structure a flat save would discard must never silently flatten back over its file:
+
+- `flat_save_discards_layers(document)` (main_window.cpp): more than one layer, any group/adjustment/text/smart-object layer, a hand-authored mask, or layer styles. A single pixel layer whose only mask carries the document-alpha marker stays exempt (that mask IS the flat file's alpha plane).
+- `save_extension_preserves_layers()` lists the guard-skipped formats: psd/psb, aseprite/ase, and ico/cur (exempt on purpose: multi-size icons live as hidden "WxH" layers, so every icon save would otherwise false-positive).
+- Save on a layered flat-backed document routes to Save As, defaulting name and filter to `.psd`.
+- Explicitly choosing a flat format raises `flattenLayersMessageBox` (default Cancel) and on confirm performs a save-a-copy: the flat file is written but the session keeps its path, title, and modified state. Save As pre-confirms and passes `flatten_confirmed` so the box appears once.
+- Exception: a linked smart-object child session keeps real-save semantics after the same warning (the linked file IS that document; the parent refresh needs the write).
+- Pins: `ui_save_layered_flat_format_routes_to_save_as_with_psd_default`, `ui_flat_save_of_layered_document_warns_and_saves_copy`.
+
+## Shared writer helpers
+
+`formats/document_flatten.{hpp,cpp}`: `flatten_document_rgba8` (mask-aware: a document-alpha layer exports non-destructively), `indexed_flatten_for_palette_mode` (document palette in file order, exact-then-LUT, appended transparent slot: PNG-8 semantics), `indexed_flatten_quantized` (median-cut fallback for RGB docs; GIF + ILBM share it). Both indexed functions delegate to PixelBuffer-level `indexed_rgba8_with_palette` / `indexed_rgba8_quantized` so the animated GIF writer can index each frame separately with identical semantics.
+
+The UI hands `QString` paths to the Qt-free readers and writers through `to_filesystem_path` (`ui/qt_paths.hpp`; see the path rule in `AGENTS.md`), and `formats/format_file_io.cpp` `rename_first_layer_to_stem` names the imported layer in UTF-8 through `path_to_utf8`.
+
+Everything except PSD/Aseprite flat-exports through `write_flat_image_file`. `ImageSaveOptions` carries the EXPORT-only transforms, never Save/Save As: the shared dialog section (on every export form except ICO/CUR) persists them under its own `saveOptions/exportScale`, `exportResize`, `exportResizePercent`, `exportFillTransparent`, `exportBackgroundColor`, `exportTrim`, and `exportRevealInFileExplorer` keys so option defaults never inherit one (JPEG forces the fill and does not persist it; PDF editable layers disable the section). `export_stand_in_document` applies them in order: trim (alpha != 0 bounds; an all-transparent image keeps its size plus a notice), resize (`scale_pixels_resampled`, bilinear; `export_width/height` describe the FULL canvas so a trimmed export scales by the same factors, one zero side follows the aspect), nearest-neighbor `export_scale`, then the background fill (straight-alpha matte, opaque result). The stand-in keeps the doc-alpha mask structure and palette metadata unless matted; all-default options take the old byte-identical path; PPI copies verbatim. The animated GIF writer applies the same per frame, trimming to the union of all frames' bounds. File > Export Flat Image... is Ctrl+Alt+Shift+S (`file.export_flat`).
+
+## PSD adjustment layers and clipping masks
+
+- Curves presets (`.acv`) via `formats/acv_curves_io`: big-endian, 2..19 ordered byte points per curve, output-before-input; reads v4, both legacy v1 shapes, and the indexed `Crv ` extension; export writes PS 2026's v4 five-curve RGB shape with the trailing identity curve. Native PSD Curves shares the v1 body parser.
+- Imported adjustment layers get canvas-sized bounds: Photoshop writes an empty rect, which renders as unbounded but starves rect-based canvas/undo invalidation.
+- Every modeled adjustment kind reads and writes a native Photoshop block: `levl`, `curv`, `hue2`, `blnc`, `nvrt`, `post`, `thrs`, `brit` (payload layouts beside the parsers). A native block overrides a stale `plAD` on load; fresh saves emit native blocks ONLY. Unedited payloads re-emit byte-for-byte, edits regenerate. Posterize models levels 2-255 (destructive dialog keeps 2-16), Threshold 1-255 (destructive 0-255); both share their pixel formula with the destructive filters (core/adjustment_layer): calibrated-destructive math, not claimed byte-identical PS output. `photoshop-{invert,posterize,threshold}.psd` pin round trips.
+- Color Balance (`blnc`, 20-byte fixed payload): Patchy models MIDTONES only and patches in place; fresh layers write PS's midtones-only zero template. Nonzero shadows/highlights or preserve-luminosity raise a "preserves but does not render" notice. Rendering is a flat per-channel shift approximating PS's tonal-weighted math. Legacy plAD-only files read and migrate on save. Fixtures: `photoshop-color-balance{,-full}.psd`.
+- Brightness/Contrast: legacy-mode PS writes ONLY the 8-byte `brit`; modern mode writes an all-zero `brit` plus a `CgEd` descriptor ('means'/'useLegacy' are stringIDs, the rest charIDs). A parseable `CgEd` beats `brit` on read. Both algorithms are modeled via `use_legacy` (modern ranges -150..150 / -50..100, legacy -100..100 both; brit-only files load legacy; new adjustments default modern). Edits regenerate `brit` plus a PS-2026-shape `CgEd` (imported descriptor fields preserved, else defaults), EXCEPT legacy settings on a file that never carried a descriptor stay brit-only (a stale `CgEd` would win over `brit` in Photoshop). Calibration and native `curv` rules: [adjustments-calibration.md](adjustments-calibration.md). Fixtures: `photoshop-brightness-contrast-{legacy,modern}.psd`, `photoshop-curves-{masked,clipped}.psd`.
+- `plAD` is read-only legacy; nothing writes it anymore (the unknown key made Photoshop warn, and its odd 143-byte payload desynced PS's even-rounded block walk). Native `levl`/`hue2` carry every modeled value except the Levels dialog's selected channel tab, which only ever rode `plAD`. The frozen v4 layout stays readable (`parse_patchy_adjustment`); saving migrates to the native block and drops `plAD` (`should_skip_layer_block`).
+- `hue2`: imported raw payload preserved in `unknown_psd_blocks`, suppressed from raw re-emission; fresh layers emit the byte-exact PS fresh-layer template. The six per-hextant band records ARE modeled and rendered (`HueSaturationAdjustment::bands`); only the undocumented 36-byte trailer stays patch-in-place, so unedited layers round-trip byte-identically. Hue: -180..180 in the file, 0..360 in the model.
+- Hue/Saturation renders through calibrated tables in core/adjustment_layer.cpp (colorize + master, byte-quantized lightness stage, 1530-step hue wheel). Formulas and accuracy: [adjustments-calibration.md](adjustments-calibration.md). The destructive menu path and Affinity `HsRA` import share this math.
+- The clipping byte round-trips (`Layer::clipped()`; group/divider records write 0) and clipping masks RENDER: base + consecutive clipped siblings composite in isolation (`IsolatedClipGroupTarget`) and merge with the base's blend mode/opacity. Every sibling-iteration site must go through `composite_sibling_layers`, never a raw children loop, or clipped runs render independently. A clipped adjustment layer adjusts only its group. `clbl` is preserved raw (`clbl=false` renders as if true); clipped flags above groups/adjustments or at the bottom of a list render unclipped defensively. `.aseprite` saves drop the flag.
+- Fill Opacity = the 4-byte `iOpa` block; authored 100% omits it. Fill affects base content and adjustment strength, not layer effects; group Fill is ignored. Color Burn, Linear Burn, Color Dodge, Linear Dodge, and Difference use PS's special Fill kernels, not a master-opacity multiply. Nondefault-Fill clipping bases record content coverage separately so effects do not become the clipping shape. Aseprite cannot store Fill; Patchy warns before discarding.
+- Advanced Blending "Channels" = the `brst` block: big-endian u32 channel indices EXCLUDED from compositing, no count prefix (PS writes ascending, omits when everything blends). RGB indices 0-2 map to `Layer::restricted_channels()`; the writer regenerates from the model (an imported EMPTY block drops on resave). Non-RGB indices or a malformed payload import preserved-raw only (unsupported flag, warning, dialog checkboxes disabled). Rendering: [ps-compat.md](ps-compat.md). Fixture pair: `photoshop-channel-restrictions.psd/bmp`.
+- Layer origins are preserved verbatim, however far off-canvas (the old origin clamp silently SHIFTED content). Corruption guard: |origin| <= 2^23. `psd_far_offcanvas_layer_keeps_true_origin` pins it.
+
+## Damaged PackBits scanlines
+
+Real legacy PSDs carry corrupt RLE scanlines and Photoshop still opens them, so image-channel readers recover instead of failing. `decode_packbits_scanline` (psd_descriptor.cpp) is the lenient decoder every layer, composite, and saved-channel row goes through: an overrunning run is clipped, a short scanline keeps zeroes, and the result is always exactly the channel width. Each row's declared byte count still positions the stream, so a damaged row cannot desync later rows (Photoshop abandons the channel at the first bad row; Patchy resyncs on the row table, verified against PS 2026 on a real corrupt file). Readers count recovered rows; `append_damaged_row_notice` emits ONE notice per document. Everything else (patterns, brushes, filter effects, ILBM) keeps the strict `decode_packbits`, whose exact-length contract catches genuine misparses.
+
+Damaged-structure caps (September 2026): the header is validated before anything sizes a buffer from it (zero or over-limit canvases are refused; PSD 30,000, PSB 300,000 per side), layer and mask rectangles are formed in 64-bit and refused past the PSB limit, descriptor nesting (`Objc`/`VlLs`/`ObAr`) stops at 64 levels with an error (each level was a C++ stack frame, so a 25 KB crafted block overflowed the loader thread), item counts are checked against the remaining bytes before any reserve, and group nesting is capped at 64 (Photoshop allows 10): deeper boundary records are flattened into the deepest kept group and their folder records dropped.
+
+PSD channels/extra data use bounded sub-readers. PSD/PSB writing caps expanded
+native layer records, including group boundaries, at Photoshop's limit of 8000.
+Empty documents save a transparent placeholder without changing the live
+tree. PCX/ILBM validate encoded length; PCX and strict PackBits cap their initial
+reserve and grow as runs decode. Aseprite cels also grow as decoded. JXR float decode uses bounded WIC row batches.
+
+## Import notices
+
+Readers report dropped/approximated features via `FormatReadResult::notices` (plain English; the formats lib is Qt-free). `open_document_path` shows them in the STATUS BAR by default (first note plus "+N more"); the consolidated `importNoticesMessageBox` popup appears only when `imports/showPsdWarningsAndInfo` is enabled (the same preference that gates the PSD compatibility report). Tests assert `statusBar()->currentMessage()`; only tests that ENABLE the preference need the REPEATING QTimer dismisser (a one-shot fires during the open-progress phase and the suite hangs).
+
+Blend If: layer records keep their original blending-ranges payload in `Layer::raw_psd_blending_ranges()`. Valid native 40-byte RGB shapes render and edit on pixel, adjustment, and folder records; a range edit patches the known 32 bytes and preserves the identity tail; fresh identity settings write the historical zero-length payload (default-writer canary unchanged). Malformed, partial, non-RGB, and nonidentity-tail shapes stay preview-locked and byte-preserved until the user replaces them. A folder's synthetic closing record keeps its own `raw_psd_group_boundary_blending_ranges()` payload (PS writes a 40-byte identity there): always preservation-only with a precise warning; folder controls edit the visible folder record only.
+
+Layer styles: imported `lfx2`/`lrFX` blocks stay byte-identical until that layer's style is edited. Satin is parsed, rendered, and editable; edited Satin regenerates PS's native 12-field `ChFX` descriptor with its non-anti-aliased Linear contour. Custom contour curves and contour anti-aliasing stay byte-preserved while untouched (the dialog warns that editing normalizes them). Group layer effects render as of July 2026 (COM-calibrated rules in [ps-compat.md](ps-compat.md)). Gradient Overlay and gradient Stroke preserve, render, and edit each stop's native `Mdpn` midpoint without changing the private `plFX` version.
+
+## Fixtures and verification
+
+Committed fixtures live under `test-fixtures/<format>/` (provenance in NOTICE-THIRD-PARTY.md); adversarial files are synthesized byte-by-byte in-test. The PSD set includes `photoshop-satin-default.psd`, `photoshop-layer-style-4a-roundtrip.psd` (PS-resaved acceptance), and `photoshop-blend-if-4b-roundtrip.psd` + `-render.bmp` (native Blend If + render acceptance). Writers were verified with independent decoders (Pillow, Qt, real Aseprite, a from-scratch Python ILBM reader, Photoshop COM): keep doing that for format changes.
+
+## PSB (large document format) read + write
+
+PSB threads `Header::large_document` / `WriteOptions::large_document` through psd_document_io: u64 section/layer-info/channel lengths, u32 RLE row byte counts, header version 2. Save As offers `.psb`; writing a >30k px document as `.psd` errors ("use .psb"; the PSB cap is 300k). Facts pinned against Photoshop 2026 (COM byte-diffs) that the spec gets wrong or omits:
+
+- Tagged-block length width on read = '8B64' signature OR (PSB and the key is in the documented 8-byte list). BOTH rules, not either alone: PS writes 'cinf' as 8B64+u64 in PSBs (not in the spec's list), but PS 2023 writes 'lnk2' as plain '8BIM' + u64 (spec-list key, no 8B64 signature); the signature alone misreads that length and silently derails the rest of the global block walk (`psb_linked_smart_objects_parse_lnke_if_available` pins it). `UnknownPsdBlock::long_length` records each preserved block's width for re-emit; the writer's upgrade list (`tagged_block_length_is_u64`) = spec set + 'cinf'.
+- PS pads the PSB layer-info section to 2 bytes (same as PSD), not 4.
+- Old Photoshop writes EMPTY layers (0x0 rect) with zero-length channel data: no payload, no 2-byte compression marker. The reader treats a zero-length channel as empty instead of erroring (interface_mock2.psd is a real 2018 example).
+- CMYK documents carry CMYK colors in three places, all converted to sRGB through ONE shared path so effect/text colors match the converted pixels: pixel channels (stored inverted), lfx2 'CMYC' effect colors, and text engine `/FillColor` ink fractions. With an embedded CMYK ICC profile (resource 1039) all three convert through vendored lcms2 (`CmykToRgbTransform`; relative colorimetric + black point compensation, PS's defaults); without one, the naive ink mix rgb = 255*(1-ink)*(1-black); no default profile is bundled (Adobe profiles may only ship embedded in image files). The CMYK profile is never promoted into `color_state()` and is stripped from RGB re-exports. Accuracy vs PS's ACE engine: [ps-compat.md](ps-compat.md). Known gap: legacy 'lrFX' ignores the color-space id. Fixture: `photoshop-cmyk-style-colors.psd`.
+- The default-false PSD writer paths are pinned byte-identical by `psd_layered_writer_bytes_are_stable` (FNV hash canary; re-pin only for deliberate format changes).
+
+## 16-bit and 32-bit PSD/PSB import (converted to 8-bit)
+
+Patchy's pixel pipeline is 8-bit only: deep files convert every channel at decode time (`convert_channel_to_8bit` in psd_channel_data.cpp), saving writes an ordinary 8-bit file, and an import notice states the conversion. Pinned against Photoshop 2026 COM fixtures and a CS4-era file:
+
+- 16-bit samples are full-range big-endian u16 (0..65535, NOT the 0..32768 pattern-resource scale); conversion is value/257 with rounding. 32-bit samples are big-endian linear-light floats: color channels clamp to 0..1 and sRGB-encode (matches PS's default Exposure and Gamma conversion on the probe colors); transparency, masks, and saved channels scale linearly instead.
+- Deep files keep an EMPTY standard layer-info section; the real layers live in the `Lr16`/`Lr32` document-global tagged block (`read_layer_info_records` parses both). The block is consumed, never preserved: re-emitting a stale deep block (or `Mt16`/`Mt32` data) from a converted 8-bit save would mislead Photoshop. An 8-bit file with an empty standard section and a `Layr` block parses the same way. The legacy top-to-bottom order heuristic is skipped for these blocks. The merged-transparency flag is the sign of the block's layer count (`read_merged_transparency_flag_and_skip_layer_mask`).
+- Layer channels decode zip (2) and zip-with-prediction (3) besides raw/RLE; prediction-undo details beside the decoder. PS writes zip-with-prediction for non-empty deep layer channels.
+- Composite-section RLE rows are plain PackBits at every depth, NO prediction; zip composites stay rejected. A deep file saved without Maximize Compatibility carries an all-white composite (PS behavior, not a bug); the layers are authoritative.
+- Local untracked fixtures: `ps2026-{16,32}bit[-flat].psd` (COM-generated; expected values sampled via COM) and `Flat-filter-list.psd` (CS4-era 16-bit). Tests: `psd_16_bit_*`, `psd_32_bit_*`, `psd_photoshop_{16,32}_bit_fixtures_load_if_available`.
+
+## Saved PSD channels and flat-image alpha
+
+PSD/PSB saved alpha and spot channels are ordered, full-canvas `DocumentChannel` planes: not layer masks, never changing the normal composite. Model and UI rules: [channels.md](channels.md). Wire rules:
+
+- A negative layer count structurally marks the first extra composite plane as merged transparency; the reader never exposes that plane in the Channels dock. Every remaining plane after the source color components becomes a saved channel, regardless of name.
+- Layered writes emit RGB, optional merged transparency (present only when the layered composite has transparent pixels), then every document channel. The header's channel total stays at or below 56; excess is an error, never silent discard. Opaque documents with no saved channels keep the historical byte-stable writer path.
+- Image resources 1006 (legacy Pascal names), 1045 (Unicode names, authoritative), 1053 (identifiers for saved ALPHA channels only: advance its index only for alpha channels), and 1007/1077 (display info) travel in the same order as their planes. Opaque display records travel WITH their channel so reordering cannot detach spot metadata; imported spot records stay opaque-preserved while spot editing is unavailable.
+- Raster layer masks stay layer channel `-2`, including masks that began as flat-image alpha; the old `"Alpha 1"` name heuristic and marked-mask promotion are NOT used for layered saves. Group masks ride the folder divider record the same way (mask-data block plus `-2` channel, matching PS); a mask-less group keeps its historical zero-channel record.
+- A non-PSD flat image's meaningful per-pixel alpha becomes an editable grayscale layer mask via `promote_flat_alpha_to_layer_mask` (one ordinary pixel layer only; skips uniform alpha, text, smart objects). `kLayerMetadataDocumentAlpha` is the non-destructive flat-export marker: `document_alpha_rgba8` keeps covered RGB values intact when writing one-alpha-plane formats. PSD imports bypass the promotion.
+- Layered saves with canvas transparency write PS's merged-alpha shape: straight RGB plus coverage, resource name `"Transparency"`, negative layer count. `psd_layered_write_keeps_merged_transparency_in_composite` and the real Content.psb regression keep it from becoming a phantom saved channel or layer mask.

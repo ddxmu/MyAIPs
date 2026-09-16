@@ -1,0 +1,136 @@
+#pragma once
+
+#include "core/layer.hpp"
+
+#include <array>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace patchy {
+
+inline constexpr const char* kLayerMetadataMaskLinked = "patchy.mask_linked";
+// Marks a layer mask that originated as a document-level alpha channel (a flat image's
+// per-pixel alpha, or a PSD "Alpha 1" saved channel) rather than a hand-authored layer
+// mask. Such masks are written back as the file's alpha / a PSD "Alpha 1" channel on save.
+inline constexpr const char* kLayerMetadataDocumentAlpha = "patchy.document_alpha";
+inline constexpr const char* kLayerMetadataGroupExpanded = "patchy.layer_group_expanded";
+inline constexpr const char* kLayerMetadataText = "patchy.text";
+inline constexpr const char* kLayerMetadataTextHtml = "patchy.text.html";
+inline constexpr const char* kLayerMetadataTextRuns = "patchy.text.runs";
+inline constexpr const char* kLayerMetadataTextParagraphRuns = "patchy.text.paragraph_runs";
+inline constexpr const char* kLayerMetadataTextFlow = "patchy.text.flow";
+inline constexpr const char* kLayerMetadataTextBoxWidth = "patchy.text.box_width";
+inline constexpr const char* kLayerMetadataTextBoxHeight = "patchy.text.box_height";
+inline constexpr const char* kLayerMetadataTextFont = "patchy.text.font";
+inline constexpr const char* kLayerMetadataTextSize = "patchy.text.size";
+inline constexpr const char* kLayerMetadataTextColor = "patchy.text.color";
+inline constexpr const char* kLayerMetadataTextBold = "patchy.text.bold";
+inline constexpr const char* kLayerMetadataTextItalic = "patchy.text.italic";
+inline constexpr const char* kLayerMetadataTextAntiAlias = "patchy.text.anti_alias";
+inline constexpr const char* kLayerMetadataTextSourceBlock = "patchy.text.source_block";
+inline constexpr const char* kLayerMetadataTextRasterStatus = "patchy.text.raster_status";
+// "photoshop" on text layers imported from a Photoshop-authored TySh block: the renderer lays
+// lines out with Photoshop's leading model (per-line max leading, auto = paragraph fraction x
+// size, box first baseline at the typographic ascender) instead of Qt's natural line spacing.
+// Patchy-authored text (including Patchy-written PSDs reopened later) never carries this, so
+// native layout stays byte-stable.
+inline constexpr const char* kLayerMetadataTextLayoutMode = "patchy.text.layout";
+inline constexpr const char* kTextLayoutModePhotoshop = "photoshop";
+inline constexpr const char* kLayerMetadataTextTransform = "patchy.text.transform";
+inline constexpr const char* kLayerMetadataPsdTextTransform = "patchy.psd.text.transform";
+inline constexpr const char* kLayerMetadataPsdTextBounds = "patchy.psd.text.bounds";
+inline constexpr const char* kLayerMetadataPsdTextBoundingBox = "patchy.psd.text.bounding_box";
+inline constexpr const char* kLayerMetadataPsdTextBoxBounds = "patchy.psd.text.box_bounds";
+inline constexpr const char* kLayerMetadataPsdTextTailBounds = "patchy.psd.text.tail_bounds";
+inline constexpr const char* kLayerMetadataPsdTextIndex = "patchy.psd.text.index";
+
+// SVG import handoff (the Qt-free reader cannot decode PNGs or render text):
+// MainWindow's post-open pass decodes pending_image data URIs, renders
+// pending_text layers through the internal text pipeline (positioning from
+// the baseline point + anchor), then drops these keys.
+inline constexpr const char* kLayerMetadataSvgPendingImage = "patchy.svg.pending_image";
+inline constexpr const char* kLayerMetadataSvgPendingText = "patchy.svg.pending_text_render";
+inline constexpr const char* kLayerMetadataSvgTextAnchor = "patchy.svg.text_anchor";
+inline constexpr const char* kLayerMetadataSvgTextBaselineX = "patchy.svg.text_baseline_x";
+inline constexpr const char* kLayerMetadataSvgTextBaselineY = "patchy.svg.text_baseline_y";
+
+// Affinity .af text import handoff (same pattern as SVG): the Qt-free reader
+// stores the story under the standard patchy.text.* keys plus these placement
+// markers; MainWindow::render_pending_af_text_layers renders post-open and
+// drops them. frame = "x0 y0 x1 y1" (the node's TxtH FrmB layout box); ascent
+// is present for artistic text (Affinity's baseline sits at y0 + ascent);
+// align is 0 left / 1 centre / 2 right within the frame box.
+inline constexpr const char* kLayerMetadataAfPendingText = "patchy.af.pending_text_render";
+inline constexpr const char* kLayerMetadataAfTextFrame = "patchy.af.text_frame";
+inline constexpr const char* kLayerMetadataAfTextAscent = "patchy.af.text_ascent";
+inline constexpr const char* kLayerMetadataAfTextAlign = "patchy.af.text_align";
+// Rotated/sheared artistic text: the node's full Xfrm ("a b tx c d ty", wire
+// order); the post-open pass renders the glyphs through the affine and stamps
+// the standard patchy.text.transform. Frame/box text never carries this.
+inline constexpr const char* kLayerMetadataAfTextXfrm = "patchy.af.text_xfrm";
+
+// PDF vector import handoff (same pattern as SVG and .af). The Qt-free reader emits
+// the story under the standard patchy.text.* keys plus these markers, and
+// MainWindow::render_pending_pdf_text_layers renders post-open and drops them.
+// xfrm is the run's full text-rendering matrix ("a b c d e f", the PDF/QTransform
+// six-number order), which PDF needs because a Tm may rotate or shear a run.
+// intended_width is the advance width the PDF laid the run out at, in document
+// pixels: the render pass compares it against the substituted font's measured width
+// and sets tracking so the run keeps its authored extent.
+inline constexpr const char* kLayerMetadataPdfPendingText = "patchy.pdf.pending_text_render";
+inline constexpr const char* kLayerMetadataPdfTextXfrm = "patchy.pdf.text_xfrm";
+inline constexpr const char* kLayerMetadataPdfTextIntendedWidth = "patchy.pdf.text_intended_width";
+// A placed image awaiting the Qt-side smart-object render: the reader has already
+// put the bytes in the document's SmartObjectStore and written the placement quad,
+// so this only marks the layer for MainWindow::render_pending_pdf_images.
+inline constexpr const char* kLayerMetadataPdfPendingImage = "patchy.pdf.pending_image_render";
+
+using LayerAffineTransform = std::array<double, 6>;
+
+[[nodiscard]] bool layer_locks_transparent_pixels(const Layer& layer);
+void set_layer_locks_transparent_pixels(Layer& layer, bool locked);
+
+[[nodiscard]] bool layer_locks_image_pixels(const Layer& layer);
+void set_layer_locks_image_pixels(Layer& layer, bool locked);
+
+[[nodiscard]] bool layer_locks_position(const Layer& layer);
+void set_layer_locks_position(Layer& layer, bool locked);
+
+[[nodiscard]] bool layer_locks_all(const Layer& layer);
+void set_layer_locks_all(Layer& layer, bool locked);
+
+[[nodiscard]] LayerLockFlags layer_lock_flags(const Layer& layer);
+void set_layer_lock_flags(Layer& layer, LayerLockFlags flags);
+void set_layer_lock_flag(Layer& layer, LayerLockFlags flag, bool locked);
+[[nodiscard]] LayerLockFlags layer_effective_lock_flags(const std::vector<Layer>& layers, LayerId layer_id);
+[[nodiscard]] LayerLockFlags layer_ancestor_lock_flags(const std::vector<Layer>& layers, LayerId layer_id);
+[[nodiscard]] bool layer_effectively_locks_transparent_pixels(const std::vector<Layer>& layers, LayerId layer_id);
+[[nodiscard]] bool layer_effectively_locks_image_pixels(const std::vector<Layer>& layers, LayerId layer_id);
+[[nodiscard]] bool layer_effectively_locks_position(const std::vector<Layer>& layers, LayerId layer_id);
+
+[[nodiscard]] bool layer_is_locked(const Layer& layer);
+void set_layer_locked(Layer& layer, bool locked);
+[[nodiscard]] bool layer_is_effectively_locked(const std::vector<Layer>& layers, LayerId layer_id);
+[[nodiscard]] bool layer_has_locked_ancestor(const std::vector<Layer>& layers, LayerId layer_id);
+
+[[nodiscard]] bool layer_mask_linked(const Layer& layer);
+void set_layer_mask_linked(Layer& layer, bool linked);
+
+[[nodiscard]] bool layer_mask_is_document_alpha(const Layer& layer);
+void set_layer_mask_is_document_alpha(Layer& layer, bool document_alpha);
+
+[[nodiscard]] bool layer_group_expanded(const Layer& layer);
+void set_layer_group_expanded(Layer& layer, bool expanded);
+
+[[nodiscard]] bool layer_is_text(const Layer& layer);
+
+[[nodiscard]] std::optional<LayerAffineTransform> parse_layer_affine_transform(std::string_view text);
+[[nodiscard]] std::string serialize_layer_affine_transform(const LayerAffineTransform& transform);
+[[nodiscard]] LayerAffineTransform compose_layer_affine_transform(const LayerAffineTransform& outer,
+                                                                  const LayerAffineTransform& inner);
+void translate_moved_layer_metadata(Layer& layer, std::int32_t dx, std::int32_t dy, std::int32_t document_width,
+                                    std::int32_t document_height);
+
+}  // namespace patchy

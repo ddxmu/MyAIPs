@@ -1,0 +1,612 @@
+#include "ui/action_icons.hpp"
+
+#include "ui/icon_theme.hpp"
+#include "ui/theme_palette.hpp"
+
+#include <QApplication>
+#include <QFile>
+#include <QFont>
+#include <QGuiApplication>
+#include <QIconEngine>
+#include <QLinearGradient>
+#include <QPaintDevice>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPixmap>
+#include <QPolygon>
+#include <QStyle>
+#include <QStyleOption>
+
+#include <algorithm>
+#include <cmath>
+#include <functional>
+#include <utility>
+
+int qInitResources_icons();
+
+namespace patchy::ui {
+
+namespace {
+
+void ensure_icon_resources() {
+  static const int initialized = qInitResources_icons();
+  (void)initialized;
+}
+
+QString resource_icon_key(const QString& value) {
+  if (value == QStringLiteral("CT")) {
+    return QStringLiteral("cut");
+  }
+  if (value == QStringLiteral("CP")) {
+    return QStringLiteral("copy");
+  }
+  if (value == QStringLiteral("CM")) {
+    return QStringLiteral("copy-merged");
+  }
+  if (value == QStringLiteral("TR")) {
+    return QStringLiteral("transform");
+  }
+  if (value == QStringLiteral("SA")) {
+    return QStringLiteral("select-all");
+  }
+  if (value == QStringLiteral("DS")) {
+    return QStringLiteral("deselect");
+  }
+  if (value == QStringLiteral("RS")) {
+    return QStringLiteral("reselect");
+  }
+  if (value == QStringLiteral("INV") || value == QStringLiteral("inv")) {
+    return QStringLiteral("invert");
+  }
+  if (value == QStringLiteral("GR")) {
+    return QStringLiteral("grow");
+  }
+  if (value == QStringLiteral("SIM")) {
+    return QStringLiteral("similar");
+  }
+  if (value == QStringLiteral("EXP")) {
+    return QStringLiteral("expand");
+  }
+  if (value == QStringLiteral("CTR")) {
+    return QStringLiteral("contract");
+  }
+  if (value == QStringLiteral("BD")) {
+    return QStringLiteral("border");
+  }
+  if (value == QStringLiteral("AL")) {
+    return QStringLiteral("alpha");
+  }
+  if (value == QStringLiteral("ADJ")) {
+    return QStringLiteral("adjustment");
+  }
+  if (value == QStringLiteral("fx")) {
+    return QStringLiteral("effects");
+  }
+  if (value == QStringLiteral("RN")) {
+    return QStringLiteral("rename");
+  }
+  if (value == QStringLiteral("LVL")) {
+    return QStringLiteral("levels");
+  }
+  if (value == QStringLiteral("CRV")) {
+    return QStringLiteral("curves");
+  }
+  if (value == QStringLiteral("HSL")) {
+    return QStringLiteral("hsl");
+  }
+  if (value == QStringLiteral("CB")) {
+    return QStringLiteral("color-balance");
+  }
+  if (value == QStringLiteral("IS")) {
+    return QStringLiteral("image-size");
+  }
+  if (value == QStringLiteral("CS")) {
+    return QStringLiteral("canvas-size");
+  }
+  if (value == QStringLiteral("SE")) {
+    return QStringLiteral("selection-edges");
+  }
+  if (value == QStringLiteral("D")) {
+    return QStringLiteral("default-colors");
+  }
+  if (value == QStringLiteral("X") || value == QStringLiteral("swap")) {
+    return QStringLiteral("swap-colors");
+  }
+  if (value == QStringLiteral("N")) {
+    return QStringLiteral("selection-new");
+  }
+  if (value == QStringLiteral("+")) {
+    return QStringLiteral("selection-add");
+  }
+  if (value == QStringLiteral("-")) {
+    return QStringLiteral("selection-subtract");
+  }
+  if (value == QStringLiteral("Ix")) {
+    return QStringLiteral("selection-intersect");
+  }
+  if (value == QStringLiteral("8BF")) {
+    return QStringLiteral("plugin");
+  }
+  if (value == QStringLiteral("FH")) {
+    return QStringLiteral("flip-h");
+  }
+  if (value == QStringLiteral("FV")) {
+    return QStringLiteral("flip-v");
+  }
+  if (value == QStringLiteral("zoomIn")) {
+    return QStringLiteral("zoom-in");
+  }
+  if (value == QStringLiteral("zoomOut")) {
+    return QStringLiteral("zoom-out");
+  }
+  if (value == QStringLiteral("1x")) {
+    return QStringLiteral("zoom-reset");
+  }
+  if (value == QStringLiteral("ok")) {
+    return QStringLiteral("apply");
+  }
+  return value;
+}
+
+}  // namespace
+
+QIcon patchy_app_icon() {
+  QPixmap pixmap(64, 64);
+  pixmap.fill(Qt::transparent);
+
+  QPainter painter(&pixmap);
+  painter.setRenderHint(QPainter::Antialiasing);
+
+  const QRectF tile(5.0, 5.0, 54.0, 54.0);
+  QLinearGradient glow(tile.topLeft(), tile.bottomRight());
+  glow.setColorAt(0.0, QColor(56, 131, 250));
+  glow.setColorAt(0.52, QColor(105, 84, 249));
+  glow.setColorAt(1.0, QColor(180, 76, 226));
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(glow);
+  painter.drawRoundedRect(tile, 14.0, 14.0);
+
+  painter.setPen(QPen(QColor(255, 255, 255, 54), 0.8));
+  painter.setBrush(Qt::NoBrush);
+  painter.drawRoundedRect(tile.adjusted(1.0, 1.0, -1.0, -1.0), 13.0, 13.0);
+
+  QFont font = QApplication::font();
+  font.setBold(true);
+  font.setPixelSize(28);
+  font.setLetterSpacing(QFont::AbsoluteSpacing, 0.5);
+  QPainterPath monogram;
+  monogram.addText(QPointF(0.0, 0.0), font, QStringLiteral("PS"));
+  const auto bounds = monogram.boundingRect();
+  monogram.translate(tile.center().x() - bounds.center().x(),
+                     tile.center().y() - bounds.center().y() - 0.5);
+  QPainterPath text_shadow = monogram;
+  text_shadow.translate(0.0, 1.0);
+  painter.fillPath(text_shadow, QColor(30, 18, 75, 95));
+  QLinearGradient ink(tile.left() + 12.0, tile.top() + 13.0,
+                      tile.right() - 10.0, tile.bottom() - 12.0);
+  ink.setColorAt(0.0, QColor(255, 255, 255));
+  ink.setColorAt(1.0, QColor(222, 227, 255));
+  painter.fillPath(monogram, ink);
+
+  return QIcon(pixmap);
+}
+
+namespace {
+
+// Draws one of the ~22 glyphs that have no authored SVG, into a 32x32 logical
+// area. Kept separate from simple_icon() so the engine below can call it at paint
+// time with a freshly resolved accent, rather than baking a color into a pixmap
+// when the QAction is built.
+void paint_simple_icon_glyph(QPainter& painter, const QString& text, const QColor& accent) {
+  painter.setRenderHint(QPainter::Antialiasing);
+  painter.setPen(QPen(accent, 2.2));
+  painter.setBrush(Qt::NoBrush);
+
+  if (text == QStringLiteral("new")) {
+    painter.drawRect(QRect(9, 6, 14, 20));
+    painter.drawLine(16, 11, 16, 21);
+    painter.drawLine(11, 16, 21, 16);
+  } else if (text == QStringLiteral("dir")) {
+    QPainterPath folder_path(QPointF(6.0, 11.0));
+    folder_path.lineTo(13.0, 11.0);
+    folder_path.lineTo(15.5, 8.0);
+    folder_path.lineTo(25.0, 8.0);
+    folder_path.lineTo(25.0, 24.0);
+    folder_path.lineTo(6.0, 24.0);
+    folder_path.closeSubpath();
+    painter.drawPath(folder_path);
+    painter.drawLine(6, 13, 25, 13);
+  } else if (text == QStringLiteral("dup")) {
+    painter.drawRect(QRect(7, 10, 13, 15));
+    painter.drawRect(QRect(12, 6, 13, 15));
+  } else if (text == QStringLiteral("RN")) {
+    painter.drawLine(QPointF(9.0, 23.0), QPointF(22.0, 10.0));
+    painter.drawLine(QPointF(18.0, 8.0), QPointF(24.0, 14.0));
+    painter.drawLine(QPointF(8.0, 24.0), QPointF(13.0, 22.5));
+    painter.drawLine(QPointF(7.0, 25.0), QPointF(9.0, 20.0));
+  } else if (text == QStringLiteral("trash")) {
+    painter.drawLine(9, 10, 23, 10);
+    painter.drawRect(QRect(11, 11, 10, 15));
+    painter.drawLine(13, 15, 13, 23);
+    painter.drawLine(19, 15, 19, 23);
+  } else if (text == QStringLiteral("fill")) {
+    painter.drawPolygon(QPolygon({QPoint(9, 10), QPoint(21, 15), QPoint(15, 25), QPoint(5, 18)}));
+    painter.setBrush(accent);
+    painter.drawEllipse(QPoint(25, 24), 3, 3);
+  } else if (text == QStringLiteral("clear")) {
+    painter.drawRect(QRect(8, 8, 16, 16));
+    painter.drawLine(8, 24, 24, 8);
+  } else if (text == QStringLiteral("warp")) {
+    // Warp cage: a 3x3 grid of gently bowed curves (Photoshop's warp-toggle glyph).
+    painter.setPen(QPen(accent, 1.8));
+    for (const double y : {8.0, 16.0, 24.0}) {
+      QPainterPath row(QPointF(6.0, y + 1.5));
+      row.cubicTo(QPointF(12.0, y - 2.5), QPointF(20.0, y - 2.5), QPointF(26.0, y + 1.5));
+      painter.drawPath(row);
+    }
+    for (const double x : {7.0, 16.0, 25.0}) {
+      QPainterPath column(QPointF(x - 1.0, 8.0));
+      column.cubicTo(QPointF(x + 2.0, 13.0), QPointF(x + 2.0, 19.0), QPointF(x - 1.0, 25.0));
+      painter.drawPath(column);
+    }
+  } else if (text == QStringLiteral("link")) {
+    painter.drawRoundedRect(QRectF(6.5, 11.0, 10.0, 10.0), 4.0, 4.0);
+    painter.drawRoundedRect(QRectF(15.5, 11.0, 10.0, 10.0), 4.0, 4.0);
+    painter.drawLine(QPointF(13.0, 16.0), QPointF(19.0, 16.0));
+  } else if (text == QStringLiteral("clip")) {
+    // Clipping mask: a bent arrow dropping onto the base layer's top edge.
+    QPainterPath arrow(QPointF(20.0, 6.5));
+    arrow.lineTo(20.0, 13.0);
+    arrow.quadTo(QPointF(20.0, 17.5), QPointF(15.5, 17.5));
+    arrow.lineTo(10.5, 17.5);
+    painter.drawPath(arrow);
+    painter.drawLine(QPointF(10.5, 17.5), QPointF(14.0, 14.0));
+    painter.drawLine(QPointF(10.5, 17.5), QPointF(14.0, 21.0));
+    painter.drawLine(QPointF(7.0, 24.5), QPointF(25.0, 24.5));
+  } else if (text == QStringLiteral("swap")) {
+    painter.drawLine(8, 11, 23, 11);
+    painter.drawLine(23, 11, 19, 7);
+    painter.drawLine(23, 11, 19, 15);
+    painter.drawLine(24, 21, 9, 21);
+    painter.drawLine(9, 21, 13, 17);
+    painter.drawLine(9, 21, 13, 25);
+  } else if (text == QStringLiteral("default")) {
+    painter.setBrush(Qt::black);
+    painter.drawRect(QRect(7, 7, 13, 13));
+    painter.setBrush(Qt::white);
+    painter.drawRect(QRect(13, 13, 13, 13));
+  } else if (text == QStringLiteral("zoomIn") || text == QStringLiteral("zoomOut")) {
+    painter.drawEllipse(QRect(7, 7, 14, 14));
+    painter.drawLine(18, 18, 26, 26);
+    painter.drawLine(11, 14, 17, 14);
+    if (text == QStringLiteral("zoomIn")) {
+      painter.drawLine(14, 11, 14, 17);
+    }
+  } else if (text == QStringLiteral("fit")) {
+    painter.drawRect(QRect(7, 9, 18, 14));
+    painter.drawLine(7, 9, 12, 9);
+    painter.drawLine(7, 9, 7, 14);
+    painter.drawLine(25, 23, 20, 23);
+    painter.drawLine(25, 23, 25, 18);
+  } else if (text == QStringLiteral("crop")) {
+    painter.drawLine(10, 5, 10, 23);
+    painter.drawLine(5, 20, 23, 20);
+    painter.drawLine(15, 9, 27, 9);
+    painter.drawLine(22, 9, 22, 27);
+  } else if (text == QStringLiteral("rotate")) {
+    painter.drawArc(QRect(7, 7, 18, 18), 30 * 16, 280 * 16);
+    painter.drawLine(22, 6, 26, 7);
+    painter.drawLine(22, 6, 23, 11);
+  } else if (text == QStringLiteral("merge")) {
+    painter.drawRect(QRect(8, 8, 15, 10));
+    painter.drawRect(QRect(11, 14, 15, 10));
+    painter.drawLine(10, 26, 24, 26);
+  } else if (text == QStringLiteral("stroke")) {
+    QPen dashed(accent, 2.0);
+    dashed.setStyle(Qt::DashLine);
+    painter.setPen(dashed);
+    painter.drawRect(QRect(8, 8, 16, 16));
+  } else if (text == QStringLiteral("stroke-path")) {
+    // Stroke Path: a thin path circle with one arc painted as a thick band.
+    painter.setPen(QPen(accent, 1.6));
+    painter.drawEllipse(QRectF(8.0, 8.0, 16.0, 16.0));
+    painter.setPen(QPen(accent, 4.5, Qt::SolidLine, Qt::RoundCap));
+    painter.drawArc(QRectF(8.0, 8.0, 16.0, 16.0), 200 * 16, 140 * 16);
+  } else if (text == QStringLiteral("eye") || text == QStringLiteral("eyeOff")) {
+    QPainterPath eye;
+    eye.moveTo(5.5, 16.0);
+    eye.cubicTo(9.0, 9.5, 23.0, 9.5, 26.5, 16.0);
+    eye.cubicTo(23.0, 22.5, 9.0, 22.5, 5.5, 16.0);
+    painter.drawPath(eye);
+    painter.drawEllipse(QPointF(16.0, 16.0), 3.8, 3.8);
+    if (text == QStringLiteral("eyeOff")) {
+      painter.drawLine(QPointF(7.0, 25.0), QPointF(25.0, 7.0));
+    }
+  } else if (text == QStringLiteral("film")) {
+    // Film strip: the frame area with a sprocket-hole column along each edge.
+    painter.drawRect(QRect(6, 8, 20, 16));
+    painter.drawLine(11, 8, 11, 24);
+    painter.drawLine(21, 8, 21, 24);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(accent);
+    for (const int y : {11, 16, 21}) {
+      painter.drawRect(QRect(7, y - 1, 2, 2));
+      painter.drawRect(QRect(23, y - 1, 2, 2));
+    }
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(accent, 2.2));
+    painter.drawPolygon(QPolygon({QPoint(14, 12), QPoint(19, 16), QPoint(14, 20)}));
+  } else if (text == QStringLiteral("lock") || text == QStringLiteral("unlock")) {
+    painter.drawRoundedRect(QRectF(8.0, 14.0, 16.0, 11.0), 2.0, 2.0);
+    QPainterPath shackle;
+    shackle.moveTo(11.0, 14.0);
+    shackle.lineTo(11.0, 11.5);
+    shackle.cubicTo(11.0, 6.5, 21.0, 6.5, 21.0, 11.5);
+    if (text == QStringLiteral("lock")) {
+      shackle.lineTo(21.0, 14.0);
+    } else {
+      shackle.lineTo(24.0, 14.0);
+    }
+    painter.drawPath(shackle);
+    painter.drawLine(QPointF(16.0, 18.0), QPointF(16.0, 22.0));
+  } else {
+    painter.setPen(accent);
+    auto font = painter.font();
+    font.setPixelSize(14);
+    font.setBold(true);
+    painter.setFont(font);
+    painter.drawText(QRect(0, 0, 32, 32), Qt::AlignCenter, text.left(2).toUpper());
+  }
+}
+
+// Same contract as ThemedIconEngine in icon_theme.cpp: resolve the color when the
+// icon is painted, so a live scheme change needs no QAction::setIcon call. An
+// invalid `accent` means "use the theme's icon ink"; an explicit one is a
+// semantic color (a red delete cross, say) and is left alone.
+//
+// The fourth constructor takes the glyph itself, for the procedural marks that
+// are not in the shared vocabulary (window buttons, canvas anchors). They still
+// resolve their ink from a role at paint time, which is the whole point: baking
+// the color into a QPixmap is what left the window buttons near-white and
+// invisible on Light's title bar.
+class ProceduralIconEngine final : public QIconEngine {
+ public:
+  using GlyphPainter = std::function<void(QPainter&, const QColor&)>;
+
+  ProceduralIconEngine(QString text, QColor accent)
+      : text_(std::move(text)), accent_(std::move(accent)) {}
+  ProceduralIconEngine(QString text, QColor ThemePalette::* accent_role)
+      : text_(std::move(text)), accent_role_(accent_role) {}
+  ProceduralIconEngine(QString name, qreal authored_size, QColor ThemePalette::* ink_role,
+                       GlyphPainter glyph)
+      : text_(std::move(name)),
+        accent_role_(ink_role),
+        authored_size_(authored_size > 0.0 ? authored_size : 32.0),
+        glyph_(std::move(glyph)) {}
+
+  void paint(QPainter* painter, const QRect& rect, QIcon::Mode mode, QIcon::State state) override {
+    if (painter == nullptr) {
+      return;
+    }
+    const qreal ratio =
+        painter->device() != nullptr ? painter->device()->devicePixelRatioF() : qreal(1.0);
+    painter->drawPixmap(rect, scaledPixmap(rect.size(), mode, state, ratio));
+  }
+
+  QPixmap pixmap(const QSize& size, QIcon::Mode mode, QIcon::State state) override {
+    return scaledPixmap(size, mode, state, 1.0);
+  }
+
+  QPixmap scaledPixmap(const QSize& size, QIcon::Mode mode, QIcon::State state,
+                       qreal scale) override {
+    Q_UNUSED(state);
+    if (size.isEmpty()) {
+      return {};
+    }
+    const qreal ratio = scale > 0.0 ? scale : qreal(1.0);
+    QPixmap rendered(QSize(qRound(size.width() * ratio), qRound(size.height() * ratio)));
+    rendered.fill(Qt::transparent);
+    rendered.setDevicePixelRatio(ratio);
+    QPainter painter(&rendered);
+    // The glyph code is authored against a square area, 32x32 unless the caller
+    // supplied its own.
+    painter.scale(static_cast<qreal>(size.width()) / authored_size_,
+                  static_cast<qreal>(size.height()) / authored_size_);
+    if (glyph_) {
+      painter.setRenderHint(QPainter::Antialiasing);
+      glyph_(painter, resolved_accent());
+    } else {
+      paint_simple_icon_glyph(painter, text_, resolved_accent());
+    }
+    painter.end();
+    if (mode == QIcon::Normal) {
+      return rendered;
+    }
+    QStyleOption option;
+    option.palette = QGuiApplication::palette();
+    if (auto* style = QApplication::style(); style != nullptr) {
+      auto generated = style->generatedIconPixmap(mode, rendered, &option);
+      if (!generated.isNull()) {
+        return generated;
+      }
+    }
+    return rendered;
+  }
+
+  QSize actualSize(const QSize& size, QIcon::Mode mode, QIcon::State state) override {
+    Q_UNUSED(mode);
+    Q_UNUSED(state);
+    return size;
+  }
+
+  QString iconName() override { return text_; }
+  bool isNull() override { return false; }
+  QIconEngine* clone() const override {
+    if (glyph_) {
+      return new ProceduralIconEngine(text_, authored_size_, accent_role_, glyph_);
+    }
+    return accent_role_ != nullptr ? new ProceduralIconEngine(text_, accent_role_)
+                                   : new ProceduralIconEngine(text_, accent_);
+  }
+  QString key() const override { return QStringLiteral("PatchyProceduralIcon"); }
+
+ private:
+  // A role wins over an explicit color, and an invalid explicit color falls back
+  // to the theme's icon ink. Resolved here rather than stored so the glyph
+  // follows a live scheme change.
+  [[nodiscard]] QColor resolved_accent() const {
+    if (accent_role_ != nullptr) {
+      return theme().*accent_role_;
+    }
+    return accent_.isValid() ? accent_ : theme().icon_ink;
+  }
+
+  QString text_;
+  QColor accent_;
+  QColor ThemePalette::* accent_role_ = nullptr;
+  qreal authored_size_ = 32.0;
+  GlyphPainter glyph_;
+};
+
+}  // namespace
+
+QIcon simple_icon(QString text, QColor accent) {
+  ensure_icon_resources();
+  const auto key = resource_icon_key(text);
+  if (QFile::exists(QStringLiteral(":/patchy/icons/%1.svg").arg(key))) {
+    return themed_svg_icon(key);
+  }
+  return QIcon(new ProceduralIconEngine(std::move(text), std::move(accent)));
+}
+
+QIcon simple_icon(QString text, QColor ThemePalette::* accent_role) {
+  ensure_icon_resources();
+  const auto key = resource_icon_key(text);
+  // An authored SVG carries its own colors through the icon color map, so the
+  // role only applies to the procedural glyphs.
+  if (QFile::exists(QStringLiteral(":/patchy/icons/%1.svg").arg(key))) {
+    return themed_svg_icon(key);
+  }
+  return QIcon(new ProceduralIconEngine(std::move(text), accent_role));
+}
+
+QIcon themed_glyph_icon(QString name, qreal authored_size, QColor ThemePalette::* ink_role,
+                        std::function<void(QPainter&, const QColor&)> glyph) {
+  return QIcon(
+      new ProceduralIconEngine(std::move(name), authored_size, ink_role, std::move(glyph)));
+}
+
+QIcon window_chrome_icon(QString role) {
+  // Ink is the menu-bar text color because these buttons share that bar; Light
+  // turns both to near-black together.
+  auto glyph = [role](QPainter& painter, const QColor& ink) {
+    painter.setPen(QPen(ink, 2.0, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
+    if (role == QStringLiteral("minimize")) {
+      painter.drawLine(QPointF(9.0, 21.0), QPointF(23.0, 21.0));
+    } else if (role == QStringLiteral("maximize")) {
+      painter.drawRect(QRectF(9.5, 9.5, 13.0, 13.0));
+    } else if (role == QStringLiteral("close")) {
+      painter.drawLine(QPointF(10.0, 10.0), QPointF(22.0, 22.0));
+      painter.drawLine(QPointF(22.0, 10.0), QPointF(10.0, 22.0));
+    }
+  };
+  return themed_glyph_icon(std::move(role), 32.0, &ThemePalette::text_bright, std::move(glyph));
+}
+
+QIcon canvas_anchor_icon(CanvasAnchor anchor) {
+  // Same reason as window_chrome_icon: these arrows sit on the Canvas Size grid
+  // cells, which Light turns pale, so the ink has to be resolved at paint time.
+  // dlg_raised_text is the label color of that dialog family.
+  auto glyph = [anchor](QPainter& painter, const QColor& ink) {
+    painter.setPen(QPen(ink, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(ink);
+
+    const QPointF center(11.0, 11.0);
+    if (anchor == CanvasAnchor::Center) {
+      painter.drawEllipse(center, 2.3, 2.3);
+      return;
+    }
+
+    QPointF target(11.0, 11.0);
+    switch (anchor) {
+      case CanvasAnchor::TopLeft:
+        target = QPointF(5.5, 5.5);
+        break;
+      case CanvasAnchor::Top:
+        target = QPointF(11.0, 4.8);
+        break;
+      case CanvasAnchor::TopRight:
+        target = QPointF(16.5, 5.5);
+        break;
+      case CanvasAnchor::Left:
+        target = QPointF(4.8, 11.0);
+        break;
+      case CanvasAnchor::Center:
+        break;
+      case CanvasAnchor::Right:
+        target = QPointF(17.2, 11.0);
+        break;
+      case CanvasAnchor::BottomLeft:
+        target = QPointF(5.5, 16.5);
+        break;
+      case CanvasAnchor::Bottom:
+        target = QPointF(11.0, 17.2);
+        break;
+      case CanvasAnchor::BottomRight:
+        target = QPointF(16.5, 16.5);
+        break;
+    }
+
+    painter.drawLine(center, target);
+    const auto angle = std::atan2(target.y() - center.y(), target.x() - center.x());
+    constexpr double kArrowSize = 4.0;
+    constexpr double kArrowAngle = 0.72;
+    const QPointF wing_a(target.x() - std::cos(angle - kArrowAngle) * kArrowSize,
+                         target.y() - std::sin(angle - kArrowAngle) * kArrowSize);
+    const QPointF wing_b(target.x() - std::cos(angle + kArrowAngle) * kArrowSize,
+                         target.y() - std::sin(angle + kArrowAngle) * kArrowSize);
+    painter.drawLine(target, wing_a);
+    painter.drawLine(target, wing_b);
+  };
+  return themed_glyph_icon(QStringLiteral("canvas-anchor"), 22.0, &ThemePalette::dlg_raised_text,
+                           std::move(glyph));
+}
+
+QIcon up_direction_arrow_icon(int direction) {
+  // Same wing construction as canvas_anchor_icon, but a full-length arrow on
+  // ordinary dialog chrome, so the standard icon ink applies.
+  auto glyph = [direction](QPainter& painter, const QColor& ink) {
+    painter.setPen(QPen(ink, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(ink);
+    const QPointF center(11.0, 11.0);
+    QPointF target(11.0, 4.2);
+    switch (direction) {
+      case 1:
+        target = QPointF(17.8, 11.0);
+        break;
+      case 2:
+        target = QPointF(11.0, 17.8);
+        break;
+      case 3:
+        target = QPointF(4.2, 11.0);
+        break;
+      default:
+        break;
+    }
+    const QPointF tail(2.0 * center.x() - target.x(), 2.0 * center.y() - target.y());
+    painter.drawLine(tail, target);
+    const auto angle = std::atan2(target.y() - center.y(), target.x() - center.x());
+    constexpr double kArrowSize = 4.5;
+    constexpr double kArrowAngle = 0.72;
+    const QPointF wing_a(target.x() - std::cos(angle - kArrowAngle) * kArrowSize,
+                         target.y() - std::sin(angle - kArrowAngle) * kArrowSize);
+    const QPointF wing_b(target.x() - std::cos(angle + kArrowAngle) * kArrowSize,
+                         target.y() - std::sin(angle + kArrowAngle) * kArrowSize);
+    painter.drawLine(target, wing_a);
+    painter.drawLine(target, wing_b);
+  };
+  return themed_glyph_icon(QStringLiteral("up-direction-%1").arg(direction), 22.0,
+                           &ThemePalette::icon_ink, std::move(glyph));
+}
+
+}  // namespace patchy::ui

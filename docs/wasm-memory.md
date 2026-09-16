@@ -1,0 +1,127 @@
+# WebAssembly memory
+
+Deep reference for wasm memory: how the shared memory is constructed, what
+the in-app numbers mean, the telemetry publisher, the in-app budgets, and
+the open Safari 26 tab-kill investigation. Build, toolchain, and threading
+rules live in [wasm.md](wasm.md); the measurement harness and the studiomac
+workflow live in [performance.md](performance.md).
+
+## Construction: the shell page owns the memory
+
+The shell page (packaging/web/patchy.html.in; the stress harness replicates
+it) constructs the shared `WebAssembly.Memory` and passes it to qtLoad as
+`wasmMemory` (`buildWasmMemory`). `QT_WASM_INITIAL_MEMORY` (256 MB,
+CMakeLists.txt) is the FLOOR baked into the memory import: a smaller
+page-supplied initial is a LinkError, so the page's `BAKED_MIN_MB` must stay
+in sync (Qt's dev-loop patchy.html just uses the floor). The page picks
+initial 512 MB desktop / 256 MB iOS and walks a maximum ladder
+(4096/2048/1024 MB; iOS 1536/1024/768), catching the RangeError WebKit
+throws when it cannot reserve a shared maximum up front; iOS starts low
+because an oversized reservation can also succeed and get the tab killed
+later, uncatchably. `-sMAXIMUM_MEMORY=4GB` stays as the declared import
+ceiling. The `PATCHY_WASM_INITIAL_MB` / `PATCHY_WASM_MAX_MB` /
+`PATCHY_WASM_POOL` URL knobs override the ladder and pool per load,
+consumed by the page before the Module exists.
+
+## Reading the numbers (About row and patchyMemStats)
+
+The chosen cap is published as `globalThis.patchyWasmMemoryMaximumBytes`,
+read by `ui/memory_info.hpp` for the About screen's live memory row
+(`emscripten_get_heap_max()` is baked at link time; never trust it for
+this). The row shows three numbers: used (the selected allocator's live claim
+from Emscripten's `mallinfo().uordblks`; dlmalloc reports its own allocations,
+and the optional mimalloc benchmark build reports its underlying emmalloc
+claim), heap
+(`emscripten_get_heap_size()`, the linear-memory buffer browser tab
+accounting sees, which only ratchets), and the cap.
+
+The shipped allocator is dlmalloc. Mimalloc's modest warm-stress throughput
+win is outweighed by retained-segment growth on a real 350 MB, 415-layer PSD:
+it reaches the wasm32 4 GB ceiling and throws `std::bad_alloc`, while the same
+threaded build with dlmalloc opens the document. The browser transfer path
+also streams into MEMFS without a full wasm `QByteArray` and releases the
+source after import, removing another source-sized heap allocation and a
+session-long JS file backing store.
+
+`ui/wasm_memory_telemetry.cpp` (installed from the MainWindow constructor)
+can publish the same picture to `globalThis.patchyMemStats` every second
+(heapBytes, usedBytes, peakUsedBytes, limitBytes, historyBytes,
+historyBudgetBytes, seq, timestampMs; seq and timestampMs detect staleness
+during long synchronous compute) for page JS and the memory test harness.
+It is diagnostics OPT-IN and inert for release visitors:
+`?PATCHY_MEM_STATS=1` enables the publisher, `?PATCHY_MEM_LOG=1`
+additionally logs each sample to the console, and the harness page opts in
+automatically through `globalThis.patchyExtraEnv` (folded into the app
+environment by app-env-pre.js, explicit URL keys winning).
+
+## In-app relief (wasm memory never shrinks)
+
+History is byte-budgeted (256 MB on wasm, `history_memory_budget_bytes`,
+floor 3 states/session) and the style caches shrink to 96/48 MB under
+`Q_OS_WASM` (image_document_io.cpp).
+
+## Known issue: Safari 26 kills the tab within minutes (August 2026)
+
+Measured on studiomac (macOS 26.3.1, Safari 26.x) with the memtest harness
+(see [performance.md](performance.md)): the app's WebContent process grows
+about 150 MB/s at IDLE with 400-1200% CPU and is killed by WebKit at
+roughly 2.5 minutes (footprint plateaued at 16 GB, ps rss reached 24 GB).
+The wasm side is innocent: patchyMemStats stays flat (512 MB heap, ~100 MB
+used), and the `footprint` category breakdown puts the growth in "WebKit
+malloc" (2.7 GB dirty 6 seconds after load), not the JS GC heap or JIT-code
+regions. Chrome on the same machine with the same page holds flat at
+~900 MB. The signature (concurrent compile threads burning CPU while
+allocating unboundedly, other browsers unaffected) matches public
+Safari/WebKit 26 reports against large wasm modules, e.g. onnxruntime issue
+26827, where sampling showed JSC::Wasm::parseAndCompileOMG looping in
+allocateStackByGraphColoring. A launchctl-env JSC_useOMGJIT=false test did
+not change the behavior, but env propagation into WebContent XPC was
+unverified, so tier attribution is open. iOS Safari deaths ~2 s after load
+are consistent with the same compile-side growth against a phone's jetsam
+budget and would be knob-independent (the memory-ladder and pool URL knobs
+cannot dodge it).
+
+A/B results (same harness, idle vs `mode=stress`; sample(1) on the WebContent
+process put the CPU and allocations in JSC::B3::Air::Greedy::GreedyAllocator
+under parseAndCompileOMG, so the growth is Safari's optimizing wasm compiler,
+not the app): SIMD is not a factor (a no-SIMD -O3 build dies identically).
+The module has no megafunctions (43k functions, largest body 256 KB). Link
+-O2 (67 MB) and -O1 (145 MB) both survive IDLE runs (compile storm 140 s with
+a 6.8 GB peak and 35 s with a 2.4 GB peak, then footprint settles), but both
+still die under a real workload: tier-up is execution-driven, hot functions
+reach OMG, and the allocator blows up at every opt level
+(`PATCHY_WASM_LINK_OPT` is a cache variable for building such variants; the
+shipped preset stays -O3). WebKit scrubs JSC_* environment variables from
+WebContent, so Safari's compiler tiers cannot be disabled externally. The
+decisive result: the SINGLE-THREADED baseline (build/wasm-st-baseline, old
+code vintage) survives a full 6-minute stress run (storm to 4.8 GB, then
+stable ~3.65 GB), so the pathology is specific to the shared-memory
+(threaded) module, matching the onnxruntime report where the non-threaded
+backend was fine.
+
+Follow-up probes (August 2026, after duplicate-boot contamination was fixed
+in the harness): the single-threaded hypothesis DID NOT SURVIVE current code.
+The old ST baseline that passed a stress run was built in June from older
+code, Qt 6.8.3, and emsdk 3.1.56; a current-code `wasm-release-st` build
+(Qt 6.10.3, emsdk 4.0.7) dies under workload exactly like the threaded one,
+as do ST -O2 and a build with the August compositor row kernels compiled
+optnone on wasm (the kernels are exonerated). Rebuilding CURRENT code on the
+June toolchain pair (Qt 6.8.3 wasm_singlethread + emsdk 3.1.56; the pairs
+are ABI-locked, embind signatures changed) is the one configuration where
+Safari's compiler CONVERGES: the storm peaks ~10 GB, recedes to under 4 GB,
+and no kill fires in 8 minutes; but under the stress workload the process
+then climbs again past 55 GB (uncharacterized: tier-up of hot functions or
+another browser-side sink; the ST app starves page JS, so only the process
+sampler sees it), so the old toolchain delays rather than removes the
+pathology. Infrastructure state: the `wasm-release-st` preset, `st/` staging,
+uploads, and the shell page's WebKit routing plus compatibility notice are
+all in place but AUTO-ROUTING IS DISABLED (`AUTO_ROUTE_WEBKIT_TO_ST=false`
+in patchy.html.in) until a configuration demonstrably survives;
+`?PATCHY_WASM_FORCE=st|mt` selects an artifact manually for testing.
+Stopgap shipped to production (August 2026): WebKit visitors on the threaded
+build get a once-per-browser-session "Safari warning" notice after load
+(save often, Chrome/Firefox/Edge recommended); the same notice element shows
+the persistent-dismissal compatibility text if ST routing is ever enabled.
+Open: the WebKit bug report (rtsoft.com/patchy?PATCHY_WASM_FORCE=mt stays a
+clean public repro), characterizing the old-toolchain second climb, and the
+iPhone run via the beta site.

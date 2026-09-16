@@ -1,0 +1,56 @@
+# Caching rules for the Patchy wasm site (staged to build\package\wasm-site by
+# scripts\release\build-wasm.bat, uploaded to rtsoft.com/patchy).
+#
+# The html must revalidate on every load so a redeploy is picked up right away.
+# Everything else is referenced from the html with a ?v=<build tag> query
+# string that changes every deploy, so those URLs can cache forever: a new
+# build means a new URL, and stale cached entries are never used again.
+#
+# Every directive is wrapped in IfModule so a host missing a module serves the
+# site without caching hints instead of failing with a 500.
+<IfModule mod_mime.c>
+AddType application/wasm .wasm
+# Precompressed variants (patchy.wasm.br and friends, written by
+# scripts\wasm\precompress-site.mjs during staging): the suffix is an
+# encoding, not a type, so the response keeps the inner extension's
+# Content-Type and gains the matching Content-Encoding. RemoveType clears
+# any distro mime mapping for .gz (often application/gzip), which would
+# otherwise fight the encoding.
+RemoveType .br .gz
+AddEncoding br .br
+AddEncoding gzip .gz
+</IfModule>
+# Serve the precompressed variant when the client accepts it and the file
+# exists. Only the large immutable assets are rewritten; the html entry
+# pages stay identity-encoded. Without mod_rewrite the identity files are
+# served, which is slower but correct.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteCond %{HTTP:Accept-Encoding} br
+RewriteCond %{REQUEST_FILENAME}.br -f
+RewriteRule ^(.+)\.(js|wasm|data)$ $1.$2.br [L]
+RewriteCond %{HTTP:Accept-Encoding} gzip
+RewriteCond %{REQUEST_FILENAME}.gz -f
+RewriteRule ^(.+)\.(js|wasm|data)$ $1.$2.gz [L]
+</IfModule>
+<IfModule mod_headers.c>
+# Cross-origin isolation: the multithreaded wasm build needs
+# SharedArrayBuffer, which browsers only enable when these two headers are
+# present on the document. "always" also covers error and redirected
+# responses. The page itself checks crossOriginIsolated and shows a clear
+# error instead of an inscrutable SharedArrayBuffer failure if a host ever
+# drops these (the upload script verifies them after each deploy).
+Header always set Cross-Origin-Opener-Policy "same-origin"
+Header always set Cross-Origin-Embedder-Policy "require-corp"
+<FilesMatch "\.html$">
+Header set Cache-Control "no-cache"
+</FilesMatch>
+<FilesMatch "\.(js|wasm|data|png|ico|svg)(\.(br|gz))?$">
+Header set Cache-Control "public, max-age=31536000, immutable"
+</FilesMatch>
+# The same URL can answer with br, gzip, or identity depending on the
+# client, so caches must key on Accept-Encoding.
+<FilesMatch "\.(js|wasm|data)(\.(br|gz))?$">
+Header append Vary Accept-Encoding
+</FilesMatch>
+</IfModule>

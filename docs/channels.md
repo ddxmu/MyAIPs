@@ -1,0 +1,49 @@
+# Document channels
+
+Patchy keeps Photoshop document channels separate from layer masks. `Layer::mask()` remains the one raster mask applied to a layer. Saved alpha and spot channels live in `Document::channels()` as ordered, full-canvas, 8-bit grayscale `DocumentChannel` objects.
+
+## Model and editing rules
+
+- Every channel has an app-stable `ChannelId`, name, `Alpha` or `Spot` kind, COW pixel buffer, content revision, optional Photoshop alpha identifier, normalized display options, and the original PSD display record when one was imported.
+- Mutable pixel access bumps the channel revision. Read-only code must use a const channel so thumbnail and overlay caches stay valid.
+- Alpha channels use black for new canvas area. Spot channels use white, which means no spot ink. Image resize, canvas resize, crop, and canvas rotation transform every channel with the document.
+- Saved alpha channels do not affect the normal layer composite. The Channels dock can show one as grayscale or as a colored overlay, and the mask-capable paint tools can edit it.
+- Quick Mask appears in the same dock as a temporary fixed row, but remains canvas-owned selection state. It is never added to `Document::channels()` and never affects PSD channel counts or output.
+- Imported spot channels are preserved and previewable but read-only. Their display record and pixel plane must survive PSD/PSB saves even when Patchy cannot interpret every field.
+- Composite, Red, Green, and Blue rows are derived views of the rendered document. They are not stored channels and are read-only.
+
+## PSD and PSB layout
+
+The wire layout (final image-data plane order, the negative-layer-count merged-transparency marking, image-resource alignment for 1006/1045/1053/1007/1077, the 56-channel cap, and the byte-stable no-channel path) lives in the saved-channels section of [file-formats.md](file-formats.md). Model-side rule: the merged-transparency plane is never added to `Document::channels()`.
+
+## Photoshop 2026 ground truth
+
+`test-fixtures/psd/photoshop-saved-channels.psd` is authored by Photoshop 2026. It contains two duplicate-named alpha channels with different inversion modes and one Unicode-named spot channel, each with distinct display metadata and pinned pixel samples. The core regression test imports it and writes a Patchy counterpart.
+
+Photoshop 2026 opens that counterpart with the same channel count, order, names, kinds, colors, opacity or solidity, and sample bytes. It can save and reopen the file without changing those values. The fixture also pins Photoshop's resource-1053 behavior: the two alpha identifiers are present and the spot channel has no identifier entry.
+
+## Flat-image alpha
+
+PNG, BMP, TIFF, TGA, and WebP alpha keeps the existing flat-import behavior: it becomes a marked layer mask so it affects the canvas and can be exported non-destructively without erasing covered RGB values. That marker is not a PSD saved channel. Layered PSD saves keep it as a real layer mask and write merged transparency from the rendered document.
+
+A saved alpha read from PSD/PSB always becomes a document channel, including channels named `Alpha 1`, uniform channels, and channels in multi-layer documents. Name-based mask recovery is forbidden because it confuses saved selections with merged transparency.
+
+## UI and performance
+
+- Layers and Channels share top tabs in the right dock, with Layers active initially.
+- Channel actions use a compact icon row with localized tooltips, and the same actions appear when a channel row is right-clicked.
+- Ctrl-click (Command-click on macOS) loads any channel row as a new selection without changing the active edit target. Saved alpha and spot channels keep their exact 0-255 coverage. RGB component rows use Photoshop's white-backed composite values; Composite uses Patchy's fixed 30/59/11 grayscale conversion because Photoshop's luminosity conversion depends on its color-management setup.
+- Selecting an alpha channel is mutually exclusive with editing layer content or a layer mask. Clicking a Layers thumbnail returns to the corresponding layer target.
+- Brush/Eraser, Fill/Clear, Gradient, Line, Rectangle/Ellipse, and Invert share the grayscale edit path. Content-only operations stay disabled while a document channel is active.
+- Channel-only edits mark the document modified and participate in normal COW undo snapshots, but they do not invalidate the layer compositor. Only the dirty overlay and revision-keyed thumbnail are refreshed.
+- Nothing scans a full channel during repaint. Full-size grayscale and overlay images are built only when their target or revision changes.
+- Ctrl-clicking a layer or layer-mask thumbnail keeps its exact soft alpha. Marching ants follow the 50% boundary, while saving the selection copies mask rows or hard-region spans directly instead of probing a complex region once per canvas pixel.
+- Save and Save As warn before a non-PSD/PSB format discards saved channels. Export is always an explicitly flattened operation and does not warn.
+
+Deferred work: editable component channels, multiple simultaneous overlays, channel-options editing, spot separations, multichannel/CMYK/Lab document modes, 16/32-bit channel editing, vector masks, and PSD real-user-mask channel `-3`.
+The PSD reader ignores `-3` payloads by their declared byte length and keeps the
+supported `-2` rendered mask plane. It must not decode `-3` against the layer
+bounds because the separate real mask can have different dimensions. This also
+accepts the compression-marker-only `-3` records found in older files.
+
+Group raster masks: PSD import stores a group's mask, the layered writer emits the folder record's mask block and `-2` channel (mask-less groups keep their historical zero-channel records, so writer canaries are unaffected), Add Layer Mask works on groups, and the compositor applies group masks on the default pass-through path: the mask attenuates each child contribution in place via `GroupMaskedTarget` (layer_compositor.hpp), so interior adjustments still reach the backdrop below the group and nested group masks multiply. Apply Layer Mask stays pixel-only. Still open: zero-area placeholder masks (the empty white mask on every Photoshop adjustment layer) are not materialized on import and vanish on resave, which Testy reports as lost `userMask` attributes even though nothing visible changes.

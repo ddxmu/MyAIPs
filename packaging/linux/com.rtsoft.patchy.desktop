@@ -1,0 +1,26 @@
+[Desktop Entry]
+Type=Application
+Name=Patchy
+GenericName=Image Editor
+GenericName[de]=Bildeditor
+GenericName[es]=Editor de imágenes
+GenericName[fr]=Éditeur d'images
+GenericName[it]=Editor di immagini
+GenericName[ja]=画像エディタ
+GenericName[zh_CN]=图像编辑器
+GenericName[zh_TW]=影像編輯器
+Comment=PSD-oriented raster image editor
+Comment[de]=Rastergrafik-Editor mit Schwerpunkt auf dem PSD-Format
+Comment[es]=Editor de imágenes de mapa de bits centrado en el formato PSD
+Comment[fr]=Éditeur d'images matricielles axé sur le format PSD
+Comment[it]=Editor di immagini raster incentrato sul formato PSD
+Comment[ja]=PSD 対応のラスター画像エディタ
+Comment[zh_CN]=以 PSD 为核心的位图图像编辑器
+Comment[zh_TW]=以 PSD 為核心的點陣圖影像編輯器
+Exec=patchy %F
+Icon=com.rtsoft.patchy
+Terminal=false
+Categories=Graphics;RasterGraphics;2DGraphics;
+MimeType=image/vnd.adobe.photoshop;image/png;image/jpeg;image/bmp;image/gif;image/tiff;image/webp;
+StartupWMClass=patchy
+SingleMainWindow=true

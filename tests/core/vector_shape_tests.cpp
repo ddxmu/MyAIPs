@@ -1,0 +1,710 @@
+#include "core/document.hpp"
+#include "core/document_path.hpp"
+#include "core/layer.hpp"
+#include "core/path_fit.hpp"
+#include "core/path_simplify.hpp"
+#include "core/pixel_tools.hpp"
+#include "core/vector_live_shapes.hpp"
+#include "core/vector_raster.hpp"
+#include "core/vector_shape.hpp"
+
+#include "test_harness.hpp"
+
+#include <cmath>
+#include <cstdint>
+#include <limits>
+#include <memory>
+#include <vector>
+
+namespace {
+
+using patchy::DocumentPath;
+using patchy::DocumentPathKind;
+using patchy::kLiveShapeKappa;
+using patchy::Layer;
+using patchy::LiveShapeKind;
+using patchy::LiveShapeParams;
+using patchy::PathAnchor;
+using patchy::PathCombineOp;
+using patchy::PathSubpath;
+using patchy::VectorPath;
+
+bool nearly(double a, double b, double tolerance = 1e-12) {
+  return std::fabs(a - b) <= tolerance;
+}
+
+VectorPath make_sample_path() {
+  VectorPath path;
+  path.fill_rule_value = 0;
+  path.initial_fill_value = 1;
+
+  PathSubpath closed;
+  closed.closed = true;
+  closed.op = PathCombineOp::Subtract;
+  closed.shape_group = 0;
+  PathAnchor smooth;
+  smooth.anchor_x = 12.25;
+  smooth.anchor_y = -3.5;
+  smooth.in_x = 10.0;
+  smooth.in_y = -8.125;
+  smooth.out_x = 14.75;
+  smooth.out_y = 1.0625;
+  smooth.smooth = true;
+  PathAnchor corner;
+  corner.anchor_x = 47.001953125;
+  corner.anchor_y = 33.0;
+  corner.in_x = corner.anchor_x;
+  corner.in_y = corner.anchor_y;
+  corner.out_x = corner.anchor_x;
+  corner.out_y = corner.anchor_y;
+  corner.smooth = false;
+  closed.anchors = {smooth, corner};
+
+  PathSubpath open;
+  open.closed = false;
+  open.op = PathCombineOp::Xor;
+  open.shape_group = 1;
+  PathAnchor lone;
+  lone.anchor_x = 0.1;
+  lone.anchor_y = 1e-9;
+  lone.in_x = -0.25;
+  lone.in_y = 100000.5;
+  lone.out_x = 0.3333333333333333;
+  lone.out_y = -1e6;
+  lone.smooth = true;
+  open.anchors = {lone};
+
+  path.subpaths = {closed, open};
+  return path;
+}
+
+void vector_path_text_codec_round_trips() {
+  const auto path = make_sample_path();
+  const auto text = patchy::serialize_vector_path(path);
+  const auto parsed = patchy::parse_vector_path(text);
+  CHECK(parsed.has_value());
+  CHECK(*parsed == path);
+
+  CHECK(!patchy::parse_vector_path("").has_value());
+  CHECK(!patchy::parse_vector_path("v2 0 0 0").has_value());
+  CHECK(!patchy::parse_vector_path("v1 0 0").has_value());
+  CHECK(!patchy::parse_vector_path("v1 0 0 1\nS 1 9 0 0").has_value());
+  CHECK(!patchy::parse_vector_path(text + " trailing").has_value());
+  // Cut mid-record: the final anchor tag survives but its numbers are gone.
+  const auto truncated = text.substr(0, text.rfind('A') + 1);
+  CHECK(!patchy::parse_vector_path(truncated).has_value());
+}
+
+void path_fixed_point_conversion_round_trips() {
+  for (const std::int32_t extent : {64, 977, 1920, 30000}) {
+    for (const std::int32_t fixed : {0, 1, -1, 0x00a00000, -0x00280000, 0x7fffffff}) {
+      const double pixels = patchy::path_coordinate_from_fixed(fixed, extent);
+      CHECK(patchy::path_coordinate_to_fixed(pixels, extent) == fixed);
+    }
+  }
+  // The observed encoding: 40 px on a 64 px canvas = 0.625 * 2^24.
+  CHECK(patchy::path_coordinate_to_fixed(40.0, 64) == 0x00a00000);
+  CHECK(nearly(patchy::path_coordinate_from_fixed(0x00a00000, 64), 40.0));
+  // Degenerate extents produce 0 rather than dividing by zero.
+  CHECK(patchy::path_coordinate_to_fixed(10.0, 0) == 0);
+}
+
+void live_rounded_rect_matches_photoshop_construction() {
+  // The probe-live-rect capture: box (8,12)-(52,44), radii TL 4, TR 8,
+  // BL 12, BR 16 (docs/vector-tools.md).
+  LiveShapeParams params;
+  params.kind = LiveShapeKind::RoundedRectangle;
+  params.left = 8.0;
+  params.top = 12.0;
+  params.right = 52.0;
+  params.bottom = 44.0;
+  params.corner_radii = {4.0, 8.0, 16.0, 12.0};  // TL, TR, BR, BL
+  const auto subpaths = patchy::generate_live_shape_subpaths(params);
+  CHECK(subpaths.size() == 1);
+  const auto& anchors = subpaths[0].anchors;
+  CHECK(subpaths[0].closed);
+  CHECK(anchors.size() == 8);
+  // Knot order and handles exactly as Photoshop wrote them.
+  CHECK(nearly(anchors[0].anchor_x, 12.0) && nearly(anchors[0].anchor_y, 12.0));
+  CHECK(nearly(anchors[0].in_x, 12.0 - 4.0 * kLiveShapeKappa));
+  CHECK(anchors[0].smooth);
+  CHECK(nearly(anchors[1].anchor_x, 44.0) && nearly(anchors[1].anchor_y, 12.0));
+  CHECK(nearly(anchors[1].out_x, 44.0 + 8.0 * kLiveShapeKappa));
+  CHECK(nearly(anchors[2].anchor_x, 52.0) && nearly(anchors[2].anchor_y, 20.0));
+  CHECK(nearly(anchors[2].in_y, 20.0 - 8.0 * kLiveShapeKappa));
+  CHECK(nearly(anchors[3].anchor_x, 52.0) && nearly(anchors[3].anchor_y, 28.0));
+  CHECK(nearly(anchors[3].out_y, 28.0 + 16.0 * kLiveShapeKappa));
+  CHECK(nearly(anchors[4].anchor_x, 36.0) && nearly(anchors[4].anchor_y, 44.0));
+  CHECK(nearly(anchors[4].in_x, 36.0 + 16.0 * kLiveShapeKappa));
+  CHECK(nearly(anchors[5].anchor_x, 20.0) && nearly(anchors[5].anchor_y, 44.0));
+  CHECK(nearly(anchors[5].out_x, 20.0 - 12.0 * kLiveShapeKappa));
+  CHECK(nearly(anchors[6].anchor_x, 8.0) && nearly(anchors[6].anchor_y, 32.0));
+  CHECK(nearly(anchors[6].in_y, 32.0 + 12.0 * kLiveShapeKappa));
+  CHECK(nearly(anchors[7].anchor_x, 8.0) && nearly(anchors[7].anchor_y, 16.0));
+  CHECK(nearly(anchors[7].out_y, 16.0 - 4.0 * kLiveShapeKappa));
+}
+
+void live_ellipse_and_line_match_photoshop_construction() {
+  LiveShapeParams ellipse;
+  ellipse.kind = LiveShapeKind::Ellipse;
+  ellipse.left = 8.0;
+  ellipse.top = 12.0;
+  ellipse.right = 52.0;
+  ellipse.bottom = 44.0;
+  const auto ellipse_subpaths = patchy::generate_live_shape_subpaths(ellipse);
+  CHECK(ellipse_subpaths.size() == 1);
+  const auto& knots = ellipse_subpaths[0].anchors;
+  CHECK(knots.size() == 4);
+  CHECK(nearly(knots[0].anchor_x, 30.0) && nearly(knots[0].anchor_y, 12.0));
+  CHECK(nearly(knots[0].in_x, 30.0 - 22.0 * kLiveShapeKappa));
+  CHECK(nearly(knots[0].out_x, 30.0 + 22.0 * kLiveShapeKappa));
+  CHECK(nearly(knots[1].anchor_x, 52.0) && nearly(knots[1].anchor_y, 28.0));
+  CHECK(nearly(knots[1].in_y, 28.0 - 16.0 * kLiveShapeKappa));
+  CHECK(nearly(knots[2].anchor_x, 30.0) && nearly(knots[2].anchor_y, 44.0));
+  CHECK(nearly(knots[3].anchor_x, 8.0) && nearly(knots[3].anchor_y, 28.0));
+
+  // The probe-live-line capture: (8,50)->(56,14), width 5 => the quad
+  // (9.5,52), (6.5,48), (54.5,12), (57.5,16).
+  LiveShapeParams line;
+  line.kind = LiveShapeKind::Line;
+  line.line_start_x = 8.0;
+  line.line_start_y = 50.0;
+  line.line_end_x = 56.0;
+  line.line_end_y = 14.0;
+  line.line_weight = 5.0;
+  const auto line_subpaths = patchy::generate_live_shape_subpaths(line);
+  CHECK(line_subpaths.size() == 1);
+  const auto& quad = line_subpaths[0].anchors;
+  CHECK(quad.size() == 4);
+  CHECK(nearly(quad[0].anchor_x, 9.5) && nearly(quad[0].anchor_y, 52.0));
+  CHECK(nearly(quad[1].anchor_x, 6.5) && nearly(quad[1].anchor_y, 48.0));
+  CHECK(nearly(quad[2].anchor_x, 54.5) && nearly(quad[2].anchor_y, 12.0));
+  CHECK(nearly(quad[3].anchor_x, 57.5) && nearly(quad[3].anchor_y, 16.0));
+  CHECK(!quad[0].smooth);
+}
+
+void live_line_arrowheads_generate_heads() {
+  LiveShapeParams line;
+  line.kind = LiveShapeKind::Line;
+  line.index = 3;
+  line.line_start_x = 0.0;
+  line.line_start_y = 0.0;
+  line.line_end_x = 100.0;
+  line.line_end_y = 0.0;
+  line.line_weight = 4.0;
+  line.arrow_end = true;
+  line.arrow_width = 12.0;
+  line.arrow_length = 16.0;
+  line.arrow_concavity = 25;
+  const auto subpaths = patchy::generate_live_shape_subpaths(line);
+  CHECK(subpaths.size() == 2);
+  CHECK(subpaths[0].shape_group == 3);
+  CHECK(subpaths[1].shape_group == 3);
+  // Shaft shortens so the head has room; the head's tip sits at the endpoint.
+  CHECK(nearly(subpaths[0].anchors[2].anchor_x, 84.0));
+  const auto& head = subpaths[1].anchors;
+  CHECK(head.size() == 4);
+  CHECK(nearly(head[0].anchor_x, 100.0) && nearly(head[0].anchor_y, 0.0));
+  CHECK(nearly(head[1].anchor_x, 84.0) && nearly(head[1].anchor_y, -6.0));
+  CHECK(nearly(head[2].anchor_x, 88.0) && nearly(head[2].anchor_y, 0.0));
+  CHECK(nearly(head[3].anchor_x, 84.0) && nearly(head[3].anchor_y, 6.0));
+
+  LiveShapeParams degenerate = line;
+  degenerate.line_end_x = 0.0;
+  CHECK(patchy::generate_live_shape_subpaths(degenerate).empty());
+}
+
+void rounded_rect_zero_and_clamped_radii() {
+  LiveShapeParams sharp;
+  sharp.kind = LiveShapeKind::RoundedRectangle;
+  sharp.left = 1.0;
+  sharp.top = 2.0;
+  sharp.right = 11.0;
+  sharp.bottom = 8.0;
+  sharp.corner_radii = {0.0, 0.0, 0.0, 0.0};
+  const auto sharp_subpaths = patchy::generate_live_shape_subpaths(sharp);
+  CHECK(sharp_subpaths.size() == 1);
+  CHECK(sharp_subpaths[0].anchors.size() == 4);
+  CHECK(!sharp_subpaths[0].anchors[0].smooth);
+
+  LiveShapeParams clamped = sharp;
+  clamped.left = 0.0;
+  clamped.top = 0.0;
+  clamped.right = 40.0;
+  clamped.bottom = 30.0;
+  clamped.corner_radii = {50.0, 50.0, 50.0, 50.0};
+  const auto clamped_subpaths = patchy::generate_live_shape_subpaths(clamped);
+  CHECK(clamped_subpaths.size() == 1);
+  // Scale = min(40/100, 30/100) = 0.3 => radii 15 everywhere.
+  const auto& anchors = clamped_subpaths[0].anchors;
+  CHECK(anchors.size() == 8);
+  CHECK(nearly(anchors[0].anchor_x, 15.0) && nearly(anchors[0].anchor_y, 0.0));
+  CHECK(nearly(anchors[1].anchor_x, 25.0) && nearly(anchors[1].anchor_y, 0.0));
+}
+
+void vector_path_bounds_groups_and_transforms() {
+  auto path = make_sample_path();
+  CHECK(!path.empty());
+  CHECK(path.next_shape_group() == 2);
+  const auto bounds = path.bounds();
+  CHECK(bounds.has_value());
+  // Control points extend the hull beyond anchors.
+  CHECK(nearly(bounds->left, -0.25));
+  CHECK(nearly(bounds->right, 47.001953125));
+  CHECK(nearly(bounds->top, -1e6));
+  CHECK(nearly(bounds->bottom, 100000.5));
+
+  VectorPath empty;
+  CHECK(empty.empty());
+  CHECK(!empty.bounds().has_value());
+  CHECK(empty.next_shape_group() == 0);
+
+  VectorPath square;
+  PathSubpath subpath;
+  subpath.anchors = {PathAnchor{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false},
+                     PathAnchor{10.0, 0.0, 10.0, 0.0, 10.0, 0.0, false},
+                     PathAnchor{10.0, 10.0, 10.0, 10.0, 10.0, 10.0, false}};
+  square.subpaths = {subpath};
+  patchy::transform_vector_path(square, {2.0, 0.0, 0.0, 0.5, 3.0, -1.0});
+  CHECK(nearly(square.subpaths[0].anchors[1].anchor_x, 23.0));
+  CHECK(nearly(square.subpaths[0].anchors[1].anchor_y, -1.0));
+  CHECK(nearly(square.subpaths[0].anchors[2].anchor_y, 4.0));
+  patchy::translate_vector_path(square, -3.0, 1.0);
+  CHECK(nearly(square.subpaths[0].anchors[0].anchor_x, 0.0));
+  CHECK(nearly(square.subpaths[0].anchors[0].anchor_y, 0.0));
+}
+
+void vector_metadata_flags_round_trip() {
+  Layer layer(1, "shape", patchy::PixelBuffer());
+  CHECK(!patchy::layer_has_vector_shape_marker(layer));
+  CHECK(!patchy::layer_vector_block_dirty(layer));
+  CHECK(patchy::vector_lock_reason(layer).empty());
+
+  layer.metadata()[patchy::kLayerMetadataVectorShape] = "1";
+  CHECK(patchy::layer_has_vector_shape_marker(layer));
+  patchy::mark_layer_vector_block_dirty(layer);
+  CHECK(patchy::layer_vector_block_dirty(layer));
+  layer.metadata()[patchy::kLayerMetadataVectorLock] = "unparsed";
+  CHECK(patchy::vector_lock_reason(layer) == "unparsed");
+}
+
+void document_path_revision_and_dirty_semantics() {
+  DocumentPath path(7, "Alpha Path", DocumentPathKind::Saved, make_sample_path());
+  CHECK(path.id() == 7);
+  CHECK(!path.dirty());
+  const auto initial_revision = path.content_revision();
+
+  auto payload = std::make_shared<const std::vector<std::uint8_t>>(std::vector<std::uint8_t>{1, 2, 3});
+  path.set_resource_source(2000, payload);
+  CHECK(!path.dirty());
+  CHECK(path.resource_id().has_value() && *path.resource_id() == 2000);
+  CHECK(path.content_revision() == initial_revision);
+
+  path.set_name("Alpha Path");  // no-op
+  CHECK(!path.dirty());
+  path.set_name("Renamed");
+  CHECK(path.dirty());
+  CHECK(path.content_revision() > initial_revision);
+
+  DocumentPath work(8, "Work Path", DocumentPathKind::Work, VectorPath{});
+  const auto before = work.content_revision();
+  work.set_clipping_path(true);
+  CHECK(work.is_clipping_path());
+  CHECK(work.dirty());
+  CHECK(work.content_revision() > before);
+}
+
+// Builds a 100x80 document holding a live-rect shape layer (10,10)-(50,40)
+// and a saved path with one square subpath.
+patchy::Document geometry_test_document() {
+  patchy::Document document(100, 80, patchy::PixelFormat::rgb8());
+  patchy::Layer shape(document.allocate_layer_id(), "Shape", patchy::PixelBuffer());
+  patchy::VectorShapeContent content;
+  patchy::LiveShapeParams params;
+  params.kind = patchy::LiveShapeKind::Rectangle;
+  params.left = 10;
+  params.top = 10;
+  params.right = 50;
+  params.bottom = 40;
+  patchy::populate_live_shape_box_corners(params);
+  content.path.subpaths = patchy::generate_live_shape_subpaths(params);
+  content.origination = {params};
+  content.fill.kind = patchy::VectorFillKind::Solid;
+  content.fill.color = patchy::RgbColor{10, 20, 30};
+  content.stroke.enabled = true;
+  content.stroke.width = 4.0;
+  shape.set_vector_shape(content);
+  shape.metadata()[patchy::kLayerMetadataVectorShape] = "1";
+  patchy::update_vector_shape_raster(shape, patchy::Rect::from_size(100, 80), nullptr);
+  document.add_layer(std::move(shape));
+
+  patchy::VectorPath saved;
+  patchy::PathSubpath square;
+  for (const auto& [x, y] : {std::pair{60.0, 50.0}, {90.0, 50.0}, {90.0, 70.0}, {60.0, 70.0}}) {
+    patchy::PathAnchor anchor;
+    anchor.anchor_x = anchor.in_x = anchor.out_x = x;
+    anchor.anchor_y = anchor.in_y = anchor.out_y = y;
+    square.anchors.push_back(anchor);
+  }
+  saved.subpaths.push_back(square);
+  patchy::DocumentPath path(document.allocate_path_id(), "Path 1", patchy::DocumentPathKind::Saved,
+                            std::move(saved));
+  path.reset_dirty();
+  document.add_path(std::move(path));
+  return document;
+}
+
+void geometry_ops_transform_vector_data() {
+  // Crop translates paths, keeps live params, and re-normalizes saved paths.
+  {
+    auto document = geometry_test_document();
+    CHECK(patchy::crop_document(document, patchy::Rect{10, 10, 80, 60}));
+    const auto* layer = &document.layers()[0];
+    const auto* content = layer->vector_shape();
+    CHECK(std::abs(content->path.subpaths[0].anchors[0].anchor_x - 0.0) < 1e-9);
+    CHECK(content->origination.size() == 1);
+    CHECK(std::abs(content->origination[0].left - 0.0) < 1e-9);
+    CHECK(std::abs(content->origination[0].bottom - 30.0) < 1e-9);
+    CHECK(patchy::layer_vector_block_dirty(*layer));
+    CHECK(layer->bounds().x == 0);
+    CHECK(document.paths()[0].dirty());
+    CHECK(std::abs(document.paths()[0].path().subpaths[0].anchors[0].anchor_x - 50.0) < 1e-9);
+  }
+  // Image resize scales anchors, live params, and the stroke width.
+  {
+    auto document = geometry_test_document();
+    patchy::resize_image_and_layers(document, 200, 160);
+    const auto* content = document.layers()[0].vector_shape();
+    CHECK(std::abs(content->path.subpaths[0].anchors[2].anchor_x - 100.0) < 1e-9);
+    CHECK(std::abs(content->origination[0].right - 100.0) < 1e-9);
+    CHECK(std::abs(content->stroke.width - 8.0) < 1e-9);
+    CHECK(document.layers()[0].bounds().width >= 80);
+    CHECK(std::abs(document.paths()[0].path().subpaths[0].anchors[1].anchor_x - 180.0) < 1e-9);
+  }
+  // Rotate clockwise maps edge coordinates (x, y) -> (H - y, x) and drops the
+  // live annotation (the path is exact).
+  {
+    auto document = geometry_test_document();
+    patchy::rotate_document_clockwise(document);
+    const auto* content = document.layers()[0].vector_shape();
+    CHECK(content->origination.empty());
+    // Anchor (10, 10) -> (80 - 10, 10) = (70, 10).
+    CHECK(std::abs(content->path.subpaths[0].anchors[0].anchor_x - 70.0) < 1e-9);
+    CHECK(std::abs(content->path.subpaths[0].anchors[0].anchor_y - 10.0) < 1e-9);
+    CHECK(document.width() == 80);
+    // Path occupies 40..70 horizontally; the 4 px centered stroke reaches 2
+    // px beyond it.
+    CHECK(std::abs(document.layers()[0].bounds().x - 38) <= 1);
+  }
+  // Canvas resize translates by the anchor offset.
+  {
+    auto document = geometry_test_document();
+    patchy::resize_canvas_and_layers(document, 120, 100, patchy::CanvasAnchor::Center);
+    const auto* content = document.layers()[0].vector_shape();
+    CHECK(std::abs(content->path.subpaths[0].anchors[0].anchor_x - 20.0) < 1e-9);
+    CHECK(content->origination.size() == 1);
+  }
+  // A per-layer flip mirrors the path about the pixel-bounds center.
+  {
+    auto document = geometry_test_document();
+    const auto layer_id = document.layers()[0].id();
+    static_cast<void>(patchy::flip_layer_horizontal(document, layer_id));
+    const auto* content = document.layers()[0].vector_shape();
+    CHECK(content->origination.empty());
+    // Bounds spanned 8..52 (stroke reach); mirroring about the center swaps
+    // the rect's 10 and 50 edges.
+    const auto& anchors = content->path.subpaths[0].anchors;
+    const auto min_x = std::min({anchors[0].anchor_x, anchors[1].anchor_x, anchors[2].anchor_x,
+                                 anchors[3].anchor_x});
+    CHECK(std::abs(min_x - 10.0) < 1e-6);
+  }
+}
+
+void path_fit_square_keeps_four_corner_anchors() {
+  // A traced rectangle (collinear runs already collapsed) must fit to exactly
+  // its four corners with collapsed handles, at any reasonable tolerance.
+  const std::vector<patchy::FitPoint> square{{10.0, 10.0}, {50.0, 10.0}, {50.0, 40.0}, {10.0, 40.0}};
+  const auto fitted = patchy::fit_closed_loop(square, 2.0);
+  CHECK(fitted.closed);
+  CHECK(fitted.anchors.size() == 4);
+  for (const auto& anchor : fitted.anchors) {
+    CHECK(!anchor.smooth);
+    CHECK(nearly(anchor.in_x, anchor.anchor_x, 1e-9));
+    CHECK(nearly(anchor.in_y, anchor.anchor_y, 1e-9));
+    CHECK(nearly(anchor.out_x, anchor.anchor_x, 1e-9));
+    CHECK(nearly(anchor.out_y, anchor.anchor_y, 1e-9));
+  }
+  bool found_first_corner = false;
+  for (const auto& anchor : fitted.anchors) {
+    if (nearly(anchor.anchor_x, 10.0, 1e-9) && nearly(anchor.anchor_y, 10.0, 1e-9)) {
+      found_first_corner = true;
+    }
+  }
+  CHECK(found_first_corner);
+  // Winding: clockwise in y-down coordinates reads positive (an outer loop).
+  CHECK(patchy::loop_signed_area(square) > 0.0);
+  const auto reversed = std::vector<patchy::FitPoint>{square.rbegin(), square.rend()};
+  CHECK(patchy::loop_signed_area(reversed) < 0.0);
+}
+
+void path_fit_circle_is_smooth_and_within_tolerance() {
+  // A dense circle polygon fits into a small set of smooth anchors whose
+  // curve stays within the tolerance of the true circle.
+  constexpr double kRadius = 50.0;
+  constexpr double kCenter = 60.0;
+  std::vector<patchy::FitPoint> circle;
+  for (int step = 0; step < 360; ++step) {
+    const double angle = step * 3.14159265358979323846 / 180.0;
+    circle.push_back({kCenter + kRadius * std::cos(angle), kCenter + kRadius * std::sin(angle)});
+  }
+  constexpr double kTolerance = 2.0;
+  const auto fitted = patchy::fit_closed_loop(circle, kTolerance);
+  CHECK(fitted.closed);
+  // Two smooth seam anchors suffice when each half-circle fits one cubic
+  // within tolerance (radius 50 leaves ~1px of error per semicircle).
+  CHECK(fitted.anchors.size() >= 2);
+  CHECK(fitted.anchors.size() <= 24);  // far fewer than the 360 input points
+  for (const auto& anchor : fitted.anchors) {
+    CHECK(anchor.smooth);
+  }
+  // Evaluate every segment densely: the fitted curve must hug the circle.
+  const auto& anchors = fitted.anchors;
+  for (std::size_t i = 0; i < anchors.size(); ++i) {
+    const auto& a = anchors[i];
+    const auto& b = anchors[(i + 1) % anchors.size()];
+    for (int step = 0; step <= 16; ++step) {
+      const double t = step / 16.0;
+      const double u = 1.0 - t;
+      const double x = u * u * u * a.anchor_x + 3.0 * t * u * u * a.out_x +
+                       3.0 * t * t * u * b.in_x + t * t * t * b.anchor_x;
+      const double y = u * u * u * a.anchor_y + 3.0 * t * u * u * a.out_y +
+                       3.0 * t * t * u * b.in_y + t * t * t * b.anchor_y;
+      const double radius = std::hypot(x - kCenter, y - kCenter);
+      CHECK(std::abs(radius - kRadius) <= kTolerance + 0.6);
+    }
+  }
+  // Deterministic: the same input fits to the identical anchor list.
+  const auto again = patchy::fit_closed_loop(circle, kTolerance);
+  CHECK(again.anchors == fitted.anchors);
+}
+
+void path_fit_staircase_smooths_diagonal() {
+  // A pixel-trace staircase (unit steps) along a diagonal collapses into a
+  // near-line fit instead of keeping every stair corner.
+  std::vector<patchy::FitPoint> loop;
+  for (int i = 0; i < 20; ++i) {  // stair edge: right 1, down 1, twenty times
+    loop.push_back({static_cast<double>(i), static_cast<double>(i)});
+    loop.push_back({static_cast<double>(i + 1), static_cast<double>(i)});
+  }
+  loop.push_back({20.0, 20.0});
+  loop.push_back({0.0, 20.0});  // close the triangle-ish region
+  const auto fitted = patchy::fit_closed_loop(loop, 2.0);
+  CHECK(fitted.anchors.size() >= 3);
+  CHECK(fitted.anchors.size() <= 8);  // the 40 stair vertices must not survive
+}
+
+// A 64-gon approximating a circle: closed, corner anchors with collapsed
+// handles (the shape an over-anchored trace produces).
+patchy::PathSubpath polygon_circle_subpath(double cx, double cy, double radius, int sides, int group,
+                                           patchy::PathCombineOp op) {
+  patchy::PathSubpath subpath;
+  subpath.closed = true;
+  subpath.op = op;
+  subpath.shape_group = group;
+  for (int i = 0; i < sides; ++i) {
+    const double angle = 2.0 * 3.14159265358979323846 * static_cast<double>(i) / sides;
+    patchy::PathAnchor anchor;
+    anchor.anchor_x = cx + radius * std::cos(angle);
+    anchor.anchor_y = cy + radius * std::sin(angle);
+    anchor.in_x = anchor.anchor_x;
+    anchor.in_y = anchor.anchor_y;
+    anchor.out_x = anchor.anchor_x;
+    anchor.out_y = anchor.anchor_y;
+    subpath.anchors.push_back(anchor);
+  }
+  return subpath;
+}
+
+double coverage_at(const patchy::CoverageBuffer& buffer, std::int32_t x, std::int32_t y) {
+  if (buffer.bounds.empty() || !buffer.bounds.contains(x, y)) {
+    return 0.0;
+  }
+  return *buffer.pixels.pixel(x - buffer.bounds.x, y - buffer.bounds.y);
+}
+
+void path_fit_open_polyline_keeps_endpoints_within_tolerance() {
+  // A quarter circle, radius 50 about the origin, sampled every 2.25 degrees.
+  std::vector<patchy::FitPoint> points;
+  for (int i = 0; i <= 40; ++i) {
+    const double angle = 0.5 * 3.14159265358979323846 * static_cast<double>(i) / 40.0;
+    points.push_back(patchy::FitPoint{50.0 * std::cos(angle), 50.0 * std::sin(angle)});
+  }
+  patchy::PathFitOptions options;
+  options.tolerance = 0.5;
+  const auto fitted = patchy::fit_open_polyline(points, options);
+  CHECK(!fitted.closed);
+  CHECK(fitted.anchors.size() >= 2);
+  CHECK(fitted.anchors.size() <= 6);
+  CHECK(std::abs(fitted.anchors.front().anchor_x - 50.0) < 1e-9);
+  CHECK(std::abs(fitted.anchors.front().anchor_y - 0.0) < 1e-9);
+  CHECK(std::abs(fitted.anchors.back().anchor_x - 0.0) < 1e-9);
+  CHECK(std::abs(fitted.anchors.back().anchor_y - 50.0) < 1e-9);
+  // Endpoint handles collapse on the side with no neighbor.
+  CHECK(fitted.anchors.front().in_x == fitted.anchors.front().anchor_x);
+  CHECK(fitted.anchors.back().out_y == fitted.anchors.back().anchor_y);
+  // The curve stays on the circle within the tolerance (sampled per segment).
+  for (std::size_t i = 0; i + 1 < fitted.anchors.size(); ++i) {
+    const auto& a = fitted.anchors[i];
+    const auto& b = fitted.anchors[i + 1];
+    for (int step = 0; step <= 16; ++step) {
+      const double t = step / 16.0;
+      const double u = 1.0 - t;
+      const double x = u * u * u * a.anchor_x + 3 * u * u * t * a.out_x + 3 * u * t * t * b.in_x +
+                       t * t * t * b.anchor_x;
+      const double y = u * u * u * a.anchor_y + 3 * u * u * t * a.out_y + 3 * u * t * t * b.in_y +
+                       t * t * t * b.anchor_y;
+      CHECK(std::abs(std::hypot(x, y) - 50.0) < 0.75);
+    }
+  }
+  // Degenerate input.
+  CHECK(patchy::fit_open_polyline({patchy::FitPoint{1.0, 1.0}}, options).anchors.empty());
+}
+
+void path_simplify_reduces_dense_circle_anchors() {
+  patchy::VectorPath dense;
+  dense.subpaths = {polygon_circle_subpath(50.0, 50.0, 40.0, 64, 0, patchy::PathCombineOp::Add)};
+  patchy::PathSimplifyOptions options;
+  options.tolerance = 1.0;
+  const auto simplified = patchy::simplify_vector_path(dense, options);
+  CHECK(simplified.anchors_before == 64);
+  CHECK(simplified.anchors_after == simplified.path.subpaths[0].anchors.size());
+  CHECK(simplified.anchors_after <= 8);
+  CHECK(simplified.changed_groups == std::vector<int>{0});
+  for (const auto& anchor : simplified.path.subpaths[0].anchors) {
+    CHECK(anchor.smooth);
+  }
+  // The refit covers the same pixels: the deviation lives in a band up to the
+  // tolerance wide along the 250 px perimeter, so the mean delta over the
+  // 100x100 canvas stays small and the total coverage within two percent.
+  patchy::VectorRasterOptions raster;
+  raster.clip = patchy::Rect{0, 0, 100, 100};
+  const auto before = patchy::rasterize_vector_path(dense, raster);
+  const auto after = patchy::rasterize_vector_path(simplified.path, raster);
+  double delta_sum = 0.0;
+  double before_sum = 0.0;
+  double after_sum = 0.0;
+  for (std::int32_t y = 0; y < 100; ++y) {
+    for (std::int32_t x = 0; x < 100; ++x) {
+      const auto a = coverage_at(before, x, y);
+      const auto b = coverage_at(after, x, y);
+      delta_sum += std::abs(a - b);
+      before_sum += a;
+      after_sum += b;
+    }
+  }
+  CHECK(delta_sum / (100.0 * 100.0) < 8.0);
+  CHECK(std::abs(after_sum - before_sum) < 0.02 * before_sum);
+}
+
+void path_simplify_preserves_ops_groups_open_flag_and_never_grows() {
+  patchy::VectorPath path;
+  path.subpaths.push_back(polygon_circle_subpath(50.0, 50.0, 40.0, 64, 0, patchy::PathCombineOp::Add));
+  path.subpaths.push_back(polygon_circle_subpath(50.0, 50.0, 20.0, 64, 1, patchy::PathCombineOp::Subtract));
+  patchy::PathSubpath wave;
+  wave.closed = false;
+  wave.op = patchy::PathCombineOp::Add;
+  wave.shape_group = 2;
+  for (int i = 0; i <= 40; ++i) {
+    patchy::PathAnchor anchor;
+    anchor.anchor_x = 10.0 + 2.0 * i;
+    anchor.anchor_y = 90.0 + 5.0 * std::sin(i * 0.3);
+    anchor.in_x = anchor.anchor_x;
+    anchor.in_y = anchor.anchor_y;
+    anchor.out_x = anchor.anchor_x;
+    anchor.out_y = anchor.anchor_y;
+    wave.anchors.push_back(anchor);
+  }
+  path.subpaths.push_back(wave);
+  path.fill_rule_value = 7;
+  path.initial_fill_value = 3;
+  patchy::PathSimplifyOptions options;
+  options.tolerance = 1.0;
+  const auto simplified = patchy::simplify_vector_path(path, options);
+  CHECK(simplified.path.subpaths.size() == 3);
+  CHECK(simplified.path.fill_rule_value == 7 && simplified.path.initial_fill_value == 3);
+  for (std::size_t i = 0; i < 3; ++i) {
+    CHECK(simplified.path.subpaths[i].op == path.subpaths[i].op);
+    CHECK(simplified.path.subpaths[i].shape_group == path.subpaths[i].shape_group);
+    CHECK(simplified.path.subpaths[i].closed == path.subpaths[i].closed);
+    CHECK(simplified.path.subpaths[i].anchors.size() <= path.subpaths[i].anchors.size());
+  }
+  CHECK(simplified.path.subpaths[2].anchors.size() < 41);
+  CHECK(simplified.changed_groups.size() == 3);
+  CHECK(simplified.anchors_after < simplified.anchors_before);
+
+  // A plain rectangle cannot get smaller: it comes back untouched.
+  patchy::VectorPath rect;
+  patchy::PathSubpath square;
+  square.closed = true;
+  for (const auto& [x, y] : {std::pair{10.0, 10.0}, std::pair{60.0, 10.0}, std::pair{60.0, 60.0},
+                             std::pair{10.0, 60.0}}) {
+    patchy::PathAnchor anchor;
+    anchor.anchor_x = x;
+    anchor.anchor_y = y;
+    anchor.in_x = x;
+    anchor.in_y = y;
+    anchor.out_x = x;
+    anchor.out_y = y;
+    square.anchors.push_back(anchor);
+  }
+  rect.subpaths = {square};
+  const auto untouched = patchy::simplify_vector_path(rect, options);
+  CHECK(untouched.path == rect);
+  CHECK(untouched.changed_groups.empty());
+  CHECK(untouched.anchors_before == 4 && untouched.anchors_after == 4);
+}
+
+}  // namespace
+
+
+void path_fit_long_staircase_does_not_depend_on_call_stack_depth() {
+  std::vector<patchy::FitPoint> edge;
+  for (int i=0; i<7500; ++i) {
+    edge.push_back({2.0*i, static_cast<double>(i)});
+    edge.push_back({2.0*i+2.0, static_cast<double>(i)});
+  }
+  patchy::PathFitOptions options;
+  options.tolerance = 0.5;
+  const auto fitted = patchy::fit_open_polyline(edge, options);
+  CHECK(!fitted.closed);
+  CHECK(fitted.anchors.size() >= 2);
+  CHECK(fitted.anchors.front().anchor_x == edge.front().x);
+  CHECK(fitted.anchors.back().anchor_x == edge.back().x);
+  CHECK(fitted.anchors.back().anchor_y == edge.back().y);
+}
+
+std::vector<patchy::test::TestCase> vector_shape_tests() {
+  return {
+      {"vector_path_text_codec_round_trips", vector_path_text_codec_round_trips},
+      {"path_fixed_point_conversion_round_trips", path_fixed_point_conversion_round_trips},
+      {"live_rounded_rect_matches_photoshop_construction", live_rounded_rect_matches_photoshop_construction},
+      {"live_ellipse_and_line_match_photoshop_construction",
+       live_ellipse_and_line_match_photoshop_construction},
+      {"live_line_arrowheads_generate_heads", live_line_arrowheads_generate_heads},
+      {"rounded_rect_zero_and_clamped_radii", rounded_rect_zero_and_clamped_radii},
+      {"vector_path_bounds_groups_and_transforms", vector_path_bounds_groups_and_transforms},
+      {"vector_metadata_flags_round_trip", vector_metadata_flags_round_trip},
+      {"document_path_revision_and_dirty_semantics", document_path_revision_and_dirty_semantics},
+      {"geometry_ops_transform_vector_data", geometry_ops_transform_vector_data},
+      {"path_fit_square_keeps_four_corner_anchors", path_fit_square_keeps_four_corner_anchors},
+      {"path_fit_circle_is_smooth_and_within_tolerance",
+       path_fit_circle_is_smooth_and_within_tolerance},
+      {"path_fit_staircase_smooths_diagonal", path_fit_staircase_smooths_diagonal},
+      {"path_fit_open_polyline_keeps_endpoints_within_tolerance",
+       path_fit_open_polyline_keeps_endpoints_within_tolerance},
+      {"path_simplify_reduces_dense_circle_anchors", path_simplify_reduces_dense_circle_anchors},
+      {"path_simplify_preserves_ops_groups_open_flag_and_never_grows",
+       path_simplify_preserves_ops_groups_open_flag_and_never_grows},
+      {"path_fit_long_staircase_does_not_depend_on_call_stack_depth", path_fit_long_staircase_does_not_depend_on_call_stack_depth},
+  };
+}

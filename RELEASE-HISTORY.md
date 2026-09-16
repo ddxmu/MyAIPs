@@ -1,0 +1,257 @@
+# Release History
+
+Older Patchy release notes are collected here. The two most recent releases
+remain in [README.md](README.md#whats-new).
+
+## 0.92 - September 9, 2026
+
+- Local AI control: desktop packages include a native MCP connector, an installable skill, and JavaScript examples. Help > Set up AI Control provides a setup prompt and task examples. Agents can use an isolated background workspace, show their own workspace, or attach to your open Patchy app; attached connections recover when the app restarts
+- Automation uses Patchy's native brushes, pressure dynamics, reusable brush presets, editable vector shapes, paths, and masks. Edits appear progressively, Slow playback offers per-stroke Undo, and Pause lets you browse documents or make manual changes before resuming
+- View > Dynamic Vector Preview renders native shapes and vector masks at screen resolution when zoomed in, keeping them sharp alongside pixel layers, groups, adjustments, and layer effects without changing saved output
+- Merge Layers preserves editable vector artwork and offers separate bitmap merges, merging within each group, and separate merges by vector paint type. Merge Visible to New Layer (Copy) keeps the originals and can hide them to avoid drawing transparent artwork twice
+- The Move tool adds rectangle layer selection, Shift-click toggles, and a right-click menu for choosing overlapping layers or selecting all layers under the pointer. The status bar counts selected layers, including folder contents, and large layer selections respond faster
+- Palette colors can have names: rename swatches and see their labels in the Palette panel, color picker, Info panel, and eyedropper readout. Names survive GPL, PSD, and indexed PNG round trips, and extracting colors retains names for exact matches. Scripts and MCP can read, set, load, and save document palettes
+- Command-line runs gain --headless for unattended editing and exports without a display or interference with an open workspace. Desktop packages include the offscreen support it needs, including the macOS packaging fix by [@csbun](https://github.com/csbun). Linux headless and MCP startup also works without a responsive desktop portal
+- Fixes: large documents load with responsive progress, open vector strokes retain their appearance in Photoshop exports, merged vector PSD data round-trips correctly, and automated opens and saves appear in shared recent history. Additional fixes cover unsaved-change prompts, Cut inside folders, text with missing script coverage, layer rendering, and damaged-file handling
+
+## 0.91 - September 3, 2026
+
+- JPEG XR (.jxr) opens and saves on Windows through the codec built into Windows. HDR captures such as NVIDIA's in-game screenshots, stored as floating-point scRGB, tone map down to 8-bit with a knee curve that keeps standard-range colors exact and rolls the highlights off instead of clipping them to white
+- Proton SDK textures (.rttex) open at their true image size rather than the padded power-of-two texture size, and save through an RTPack-style options dialog: raw RGBA8888/RGB888, RGBA4444/RGB565, or an embedded JPEG with a quality setting, all inside the RTPACK zlib wrapper. A plain Save keeps a texture's existing encoding and Save As prefills the dialog with it
+- File > Open accepts several files at once and opens each as its own document, and the Open Recent Folder entries use the same multi-select dialog
+- Hint text names modifier keys for the platform it runs on, so macOS reads Command and Option instead of Ctrl and Alt
+- Fixes: Photoshop CS6 stroke-only shape layers (a stroke with no fill block) import as editable shapes instead of arriving vector-locked, which also lets Free Transform work on any folder or multi-layer selection containing one
+
+## 0.90 - August 26, 2026
+
+- PDF is now a first-class format. Opening a PDF imports its pages as editable shape, text, and image layers by default, with a flat-image option, reads password-protected files, and converts shadings to gradient fills and spot colors through their tints. Saving as PDF works everywhere, with a choice of flattened pages or editable layers that keep paths, text, and images as real objects, and imported Photoshop text layers export as real selectable PDF text, substituting missing fonts unless you ask for images
+- Trace Image to Shapes converts a raster image, or just the selected area, into editable shape layers. Photo-quality palettes up to 256 colors with exact color assignment, a Merge Colors option that collapses near-duplicate colors, smoothing and anchor-budget sliders, saveable presets, and a size warning before heavy traces
+- Animated GIFs open as layers, with each frame's delay kept in its layer name, and the visible layers export back as a looping animation. The Layers panel's film button opens an Animation Preview that plays those layers as frames and can set or clear the per-frame timings
+- File > Import > Photocopy scans a page and prints it at actual size in one step, using the scanner's true DPI, with a movable crop and a preview that shades anything the printable area cuts off. Divide Scanned Photos splits a scan or photo into straightened per-photo images, with an up-direction picker, the output folder, prefix, and format chosen right in the dialog, and a prompt to scan another batch
+- Path point editing is discoverable: dedicated anchor tools with status-bar hints and a live selected-point count, a right-click path menu, and Auto Add/Delete on the Pen, plus Simplify Path and Combine Shapes commands for existing shape layers
+- Direct Select edits points across every shape layer selected in the Layers panel, drags a whole selection by any of its segments, and Shift constrains point drags to horizontal, vertical, or 45 degrees; marquees can be repositioned with Space or squared with Shift, and Ctrl+E keeps shape-layer merges vector
+- The Mixer Brush has calibrated continuous pickup, Sample All Layers, and a Useful Combinations dropdown with Photoshop-verified presets, and its options bar follows Photoshop's order
+- Photoshop-style stroke Smoothing steadies the Brush, Mixer Brush, and Eraser
+- The Print dialog adds a Copies field and a Print Using System Dialog button, and printing no longer crashes on a printer whose device context fails
+- Ungroup Layers and Copy as SVG join the menus
+- The Move tool's Ctrl+click toggles a layer in the current selection, and Ctrl+Shift+click in the Layers panel adds a whole range
+- Web build: the Clone tool's brush outline no longer vanishes at large sizes, a bare Alt tap no longer steals browser focus, dialogs open with keyboard focus on the intended widget, the expanded tool palette stays open, and opening a PDF explains that import is desktop only and offers a download button instead of a generic unsupported message
+- Fixes: 600 DPI flatbed scans load again instead of failing to read their image data, File > Place Embedded greys out when no document is open instead of doing nothing, files with Unicode names save and reopen correctly instead of being mangled by the ANSI code page, Ctrl+H also hides path anchors, handles, and outlines, path anchors appear as soon as the active layer changes, and entry fields use the accent color for text selection
+
+## 0.89 - August 10, 2026
+
+- Spot Healing (Shift+J) removes blemishes with a single drag and no source pick, and the new Patch tool draws a selection you drag to heal, with Source, Destination, and Transparent modes. Both heal with the classic boundary membrane, and Clone, Healing, Spot Healing, and Patch share one Sample All Layers option
+- A Photoshop-style Crop tool (C): drag out a box, resize or move it, rotate it to straighten, pick a ratio preset, and press Enter to commit. The crop can also expand the canvas
+- Auto Tone, Auto Contrast, and Auto Color apply immediately at their defaults, and the new Auto All runs all three as one undo step
+- Curves and Levels histograms match Photoshop's sampling and display, their eyedroppers show when they are armed, and destructive Levels and Hue/Saturation apply much faster
+- The Layer menu is organized into New, Layer Mask, and Arrange submenus
+- Fixes: Image Size, Canvas Size, Crop, and Rotate keep smart-object placements instead of refusing the document, the About dialog stays on screen and can be dragged
+
+## 0.88 - August 6, 2026
+
+- Free Transform works on folders and multi-layer selections. Ctrl+T takes the whole selection as one target set with linked masks riding along, the Move tool frames the same union it would take, and preview-locked smart objects transform in a multi-target session instead of refusing. Corner drags scale proportionally by default, with a preference that restores the old pairing where a plain corner drag distorts and Shift keeps the aspect ratio
+- Floating and docked panels behave. Dragging a tabbed panel's title detaches that one panel, a floating panel gets a visible resizable frame you can drag by its chrome, re-docking snaps a collapsed panel's slot back to its strip instead of leaving a gap that grew with every cycle, dock dividers are visible, and every right dock has a width handle along its full height with panel contents inset clear of it
+- Layer thumbnails zoom to their content by default, and a preference turns that off. Double-clicking one fits the canvas view to that layer's pixels, with folders using their children's union, and Ctrl+Alt-clicking a folder arrow expands or collapses every folder the way Photoshop does
+- Painting on a smart object offers to rasterize it or open its contents instead of doing nothing, filters and destructive adjustments on a text or shape layer ask to rasterize or convert it first instead of silently losing their result on the next edit, and Rasterize reaches the layers inside a selected folder
+- The web build applies the interface scale: the preference used to be saved and ignored there, steps now run from 67% to 200%, and the browser starts at 75%. The scaling happens in the shell page, so clicks land where you aimed them
+- More web work: the layer panel scrolls by rows instead of jumping the whole list on one wheel notch, input arriving during a processing wait no longer corrupts move drags or leaves ghost undos and dead hotkeys after a file picker, and preset import and export use the browser's own picker and download path. Memory is budgeted too, with a history byte budget that accounts for shared data, a heap size and ceiling chosen per device, and live memory use shown in About
+- Affinity import: adjustments attached to a layer arrive as clipped adjustment layers rather than being misread as masks, minified placed images are box-filtered instead of aliasing, opening a file with Image layers can ask whether to keep smart objects or convert them to pixel layers, and resized canvases, lazily decoded placed images, layer names, collapsed groups, and group adjustment scope all match Affinity
+- Text layers keep their transform through Image Size, Canvas Size, Crop, Rotate Canvas, layer flips, and Shift Seams, warped text layers can be edited again without breaking their warp, and the free-transform drag preview applies flip signs
+- Fixes: the document tab bar's scroll arrows are no longer clipped, a committed Free Transform holds its frame until the refresh lands instead of flashing the old geometry, and a filter dialog that unwinds by exception disarms its in-flight preview renders
+
+## 0.87 - August 4, 2026
+
+- Patchy runs in a web browser now, at [rtsoft.com/patchy](https://www.rtsoft.com/patchy/). It is the same editor compiled to WebAssembly with real threads: files open from your disk, save back as downloads, and drag straight onto the canvas, and nothing you make is ever sent online. The web build bundles 23 MB of open fonts including Japanese coverage, takes dropped font files and font zips that persist between visits, decodes HEIC photos through the browser, and remembers your settings
+- The Bold and Italic buttons in the text options bar are replaced by a Style picker that lists a font family's real faces and resolves them the way Photoshop does. Families that declare their Bold at a sub-Bold weight now pick Bold Italic correctly, and when a family has no such face, Patchy synthesizes a faux bold or faux italic from the face you are using instead of jumping to a different family
+- Missing fonts behave: a font with no glyph coverage for the text counts as missing and badges the layer, and editing past the warning substitutes a real font instead of redrawing to nothing. Options-bar changes made with no text selected now apply to the whole layer, like Photoshop
+- Text editing on transformed and scaled layers is accurate. Clicks land on the glyphs you can see rather than on an untransformed layout, the caret and selection read the renderer's own line plan, re-editing box text renders live instead of shifting as you enter it, and a commit repaints the text bounds instead of the whole document
+- The History panel is interactive. It lists the real states of the session, oldest first with the current one highlighted, one click jumps to any state in either direction, and a right-click action opens any past state as a new document
+- Large documents composite and transform much faster. A 7 megapixel reference PSD composites in 371 ms instead of 566, Move and Free Transform previews patch the regions that changed rather than recompositing the canvas (a stress step drops from 381 ms to 104 ms), heavy drags latch onto a low-resolution proxy and re-render accurately on release, previews composite at display resolution while you are zoomed out, dragging the same selection again reuses the snapshots the last drag built, and the Windows release build links with link-time optimization
+- Auto Tone and Auto Color join Image > Adjustments, and Auto Contrast now works on the composite the way Photoshop's does
+- Advanced Blending's per-channel restrictions render and can be edited, so a layer that blends through only some channels looks right instead of ignoring the setting
+- Zoom follows Photoshop's view rules with the same preset steps, and geometry operations like rotate and canvas resize recenter the view instead of leaving it scrolled off the image
+- Fixes: Clouds fills the whole canvas, Dust & Scratches reaches a 500 px radius, strokes no longer grow nubs along anti-aliased fringes on transformed text, the Layer Style dialog's Stroke page scrolls instead of stretching the dialog, undo and redo refresh the Paths panel, the start panel lists up to 200 recent files with a right-click menu and a name filter beside the Recent Files label, Open Recent gained a filter box, PSD text layers that record a font by its PostScript name resolve it on macOS and Linux instead of falling back, and the About screen has a light surface in Light mode
+
+## 0.86 - July 29, 2026
+
+- Affinity import got much wider. Affinity 2's .afphoto, .afdesign, and .afpub documents open now, alongside the current .af format and most Affinity 1.x-era files. Parametric shapes import as real editable shapes down to the long tail (stars, triangles, smoothed polygons, diamonds, pies, crescents, hearts, arrows, cogs, clouds), together with compound-shape booleans, Designer symbols, artboards, and scene-graph transforms
+- Affinity fidelity work: vector masks arrive as native vector masks, stroke line style, alignment, dashes, and miter limit come through, crop containers become masked groups so a hidden crop stays hidden, Affinity-only blend modes render through their closest equivalent with a notice, and the Erase blend mode folds into an isolated group with an inverse-alpha mask, which is how PSD stores that construction natively
+- Layer styles work on groups. A folder can carry effects, they render through the same Photoshop-calibrated pipeline as layers, and the Layer Style dialog opens from a group row or its fx badge. The old warnings about group effects being unsupported are gone
+- The Dissolve blend mode is in, on layers, groups, adjustment layers, and effects, and it round-trips through PSD
+- Fill opacity is bit-exact against Photoshop for Vivid Light, Linear Light, and Hard Mix, the three modes that treat Fill specially
+- Brightness/Contrast now models Photoshop's modern algorithm alongside the legacy one, so files carrying modern settings render, edit, and save back correctly
+- Large documents feel much better in the Layers panel. On a 622-layer file, expanding a folder went from 2.1 seconds to 0.45, and closing the Layer Style dialog went from 8.2 seconds to 0.5
+- Shape strokes no longer grow spikes at sharp corners when anchor points land off the pixel lattice
+- PSD compatibility is measured instead of asserted. The top of this README now shows how Patchy scores against Photoshop 2026 on a mixed PSD corpus, with Photopea, GIMP, Affinity, PhotoDemon, and Krita run through the same tests
+
+## 0.85 - July 27, 2026
+
+- Layer styles blend the way Photoshop does now. A layer's blend mode applies to its own pixels alone unless Blend Interior Effects as Group is on, and exterior effects contribute against the backdrop instead of under the layer, so glows and shadows keep their weight along anti-aliased text. Color, Gradient, and Pattern Overlay fold into the layer color rather than painting over the composite, so an opaque overlay hides the fill beneath it and layer opacity is no longer applied twice
+- Damaged PSD files open instead of being refused: corrupt scanlines are recovered row by row, with an import notice saying how many came back, and legacy files that carry Photoshop's separate real user mask channel read correctly instead of arriving truncated
+
+## 0.84 - July 26, 2026
+
+- Patchy has a Light color scheme now. File > Preferences picks Dark, Light, or the system light/dark setting, and the switch happens live: panels, dialogs, tabs, scroll bars, and the color picker all get real light colors instead of an inverted dark theme
+- The canvas gained Photoshop-style scroll bars, whose range agrees with what hand-tool panning allows, and on Windows the main window and the dialogs Patchy frames itself now have rounded corners and a drop shadow
+- The tool palette's extension arrow is a sticky toggle: it opens, stays open while you work, and closes on a second click or after you pick something. When the window is too short, the palette hides the color swatches last instead of clipping tools
+- Layer thumbnails show where a layer sits in the document, like Photoshop's: the tile is the document rectangle, the layer sits at its own position with checkerboard around it, and mask, vector mask, and Smart Filter previews fit their source instead of stretching into a square slot
+- Hue/Saturation is calibrated against Photoshop. The master controls match byte for byte, and the per-hue-range bands (Reds, Yellows, Greens, and the rest) render with a new Edit range control instead of being ignored
+- Photoshop no longer warns about unreadable data when it opens a PSD that Patchy saved
+- More layer style work: Bevel & Emboss Gloss Contour matches Photoshop's light remap, bevel pattern texture is calibrated and reads multichannel patterns, drop shadows saved by Photoshop 5.x import instead of vanishing, and a clipping run now clips to its base layer's transparency rather than to the base layer's effects
+
+## 0.83 - July 25, 2026
+
+- The Layers panel got a big cleanup: Mode, Opacity, and Fill share one compact row, the lock buttons sit together on the left, and thumbnails aspect-fit their layer instead of stretching to a square (hidden layers keep full-color thumbnails, and the transparency checker is brighter, like Photoshop's)
+- A new filter box in the Layers panel finds layers by name, including inside collapsed folders. Alt-click a visibility eye to solo that layer and Alt-click again to restore what was visible before, or drag down the eye column to toggle a whole run of layers in one sweep
+- Layer groups can now carry raster masks: Add Layer Mask works on folders, group masks render and round-trip through PSD, and group opacity now composites like Photoshop for both Pass Through and isolated blend modes
+- 16-bit and 32-bit PSD files now open, converting to 8-bit with Photoshop-calibrated conversion
+- Layer style rendering moved much closer to Photoshop: inner glow and inner shadow model Range, Technique, and the Center source; Bevel & Emboss gains calibrated Lambert shading, plain and Pillow Emboss, and correct pillow shading on anti-aliased curves; strokes anchor to subpixel coverage, render Shape Burst gradients, and model Overprint and zero-opacity knockout; gradient overlays match Photoshop's linear, radial, diamond, and conical geometry; interior effects stack in Photoshop's order; and Layer Knocks Out Drop Shadow works
+- PSD compatibility fixes: effect blend modes in Photoshop CS-era files import correctly instead of falling back to Normal, CS4-era shape layers rasterize instead of locking the file, imported text keeps Photoshop's own raster until you edit it (no more substituted-font redraws at load), and layers positioned far off the canvas keep their true position instead of being pulled onto the canvas and re-saved wrong
+- The gradient options bar gained a Presets button with a quick-picker popup, which the Edit Gradient Stops dialog now uses too
+- Affinity .af text imports first-line, hanging, and right paragraph indents
+- Fixes: Reveal in Explorer opens the right folder when the path has spaces, boxed text lines that straddle the frame edge draw whole, and the Script Manager's tree pane no longer cuts off bundled script names
+
+## 0.82 - July 21, 2026
+
+- JavaScript scripting is here: scripts drive documents, layers, text, selections, pixels, filters, form dialogs, file pickers, and batch processing through a documented API (patchy.d.ts for machines, a scripting guide under Help for humans), with one undo entry per run no matter how much a script changes
+- The new Script Manager (File > Scripts) puts a folder tree over the bundled and user scripts with per-script icons, names, and hover cards, plus a code editor with syntax highlighting and live run status: spinner, elapsed time, and a stop button. Editing a bundled script saves your own copy, which overrides the original and can be reverted, and New seeds a runnable starter template
+- 21 bundled scripts to use or learn from: CSV data merge, contact sheets, icon export, batch export, export all layers, versioned saves, layer rename, grid overlays, watermark, play-button overlay, trim to content, duotone, glitch, photo frame, fancy backgrounds, generative art, letter physics, a form-dialog showcase, and playable Breakout, Pong, and Game of Life on real canvases. Scripts can call other scripts with include()
+- Scripts ask for input through patchy.ui.showOptions: a real options dialog with instructions and folder/file pickers in GUI runs, --script-arg overrides from the command line, and the same defaults applied without a dialog when run unattended
+- Scripts can play sound with patchy.ui.playTone and playSound (Breakout and Pong picked up retro blips), a long busy script shows a stop panel with live progress and optional undo of its changes, and the script watchdog measures inactivity rather than total runtime so hour-long batches survive
+- patchy --run-script file.js runs a script against a new or running instance and writes console output to a file, so external tools and AI agents can drive Patchy; the Script Manager's C:\ button shows a copyable command line for any script
+
+## 0.81 - July 20, 2026
+
+- Affinity Photo and Designer .af files now open as layered documents: raster layers (8-bit, 16-bit, grayscale, and float), groups, layer masks, clipping, opacity and blend modes, CMYK and Lab color through ICC conversion, document DPI, and the canvas background all come through, with scaled and rotated layers rendered through their transforms. Anything Patchy can't model becomes a named placeholder layer with a notice instead of failing the open
+- Affinity text imports as real editable text layers with per-run fonts, sizes, and colors, alignment, paragraph spacing, All Caps, frame-box wrapping, and rotated artistic text, and Affinity layer effects (shadows, glows, strokes, color and gradient overlays, bevels) map onto Patchy layer styles
+- Affinity vector curves import as shape layers with their fills and strokes, placed images become embedded Smart Objects (so Edit Contents and Replace Contents work on them), and Curves, Levels, HSL, Color Balance, Invert, Posterize, Threshold, and Brightness/Contrast adjustment layers import natively with their masks
+- Five new blend modes: Vivid Light, Linear Light, Hard Mix, Darker Color, and Lighter Color, all calibrated bit-exact against Photoshop 2026, and Color Burn and Color Dodge rounding now matches Photoshop exactly
+- File > Import > Image Sequence to Layers and File > Export Layers as Image Sequence: files order naturally (frame2 before frame10), picking one numbered file pulls in its whole run, and export covers visible or all layers with numbered or layer-name file names
+- Seamless texture tools: the tile preview now follows the active document and refreshes live, Image > Shift Seams to Center wraps the image so the seams sit in the middle for retouching (running it again shifts back exactly), and View > Seamless Tiling in Window surrounds the canvas with live ghost tiles
+- Smart Filter rows open their settings on double-click with blend mode and opacity merged into the same dialog, and Filter Gallery entries gain per-effect blend and opacity controls
+- The Open dialog now lists one row per file format, Photoshop style, so every supported type is visible in the dropdown
+- The Character panel grays out with a hint when no text is being edited, Alt+click on a folder's arrow expands or collapses the whole branch, the layer panel's selection highlight and thumbnails render correctly, and options-bar number fields no longer clip wide values
+- The startup splash is gone: Patchy opens straight into the start panel, which now carries the version, links, and update check. Save PDF suggests the document's name, and patchy.exe gains an unattended --export flag for converting files from the command line
+
+## 0.80 - July 18, 2026
+
+- Vector tools are here: the Rectangle, Ellipse, Line, Polygon, and Custom Shape tools draw editable shape layers, the Pen builds bezier paths point by point with cursor badges that show what each click will do, and the Path Select and Direct Select tools move whole shapes or individual anchors with live re-rendering. Shape layers, vector masks, and saved paths round-trip through PSD and PSB files that open correctly in Photoshop
+- Shapes carry a full appearance: no fill, solid color, gradient, or pattern fills and strokes, with stroke width, inside/center/outside alignment, caps, joins, and dashes. Edit them from the options bar's new Fill and Stroke paint pickers or the Shape Appearance dialog, where live rectangles, ellipses, and lines can also be re-edited numerically (bounds, per-corner radii, endpoints, weight). Layer > New Fill Layer creates solid, gradient, and pattern fill layers that can clip to a path
+- A Photoshop-style Paths panel manages saved paths and the work path: fill a path with color or a pattern, stroke it through the real brush engine with an optional pressure taper, convert paths to selections and selections to work paths, free-transform a path or just its selected anchors with Ctrl+T, drag rows to reorder, and mark a saved path as the print clipping path
+- SVG files open as editable shape layers: live shapes, groups as folders, gradients, stylesheet classes, clip paths, simple patterns, embedded images, and basic text all survive (files past the supported subset fall back to a flattened raster import, and .svgz works too). Save As and Export write SVG back out with shape layers kept as real vectors. You can also paste SVG from the clipboard as shapes, place an SVG as an embedded smart object, and turn an SVG file into a stampable custom shape
+- New Liquify workspace (Filter > Liquify) with Warp, Reconstruct, Smooth, Twirl, Pucker, Bloat, Freeze, and Thaw brushes over a live preview
+- New Lens Blur (aperture blade count, curvature, and rotation) and Iris Blur (elliptical focus region) filters, plus Add Noise with uniform or Gaussian distribution, bringing the Filter Gallery to 32 effects
+- Emboss, Box Blur, Radial Blur, Add Noise, and Mosaic now work as editable native Smart Filters, bringing the roster to 13 filter types. The Filter Gallery marks which effects can apply as Smart Filters on the current layer, and Photoshop now opens Patchy-authored Smart Filter files correctly
+- Four new adjustment layers: Brightness/Contrast, Invert, Posterize, and Threshold, all reading and writing native Photoshop PSD data. Color Balance adjustment layers now save natively too, so Photoshop no longer opens them as flat white layers
+- Redesigned New Document dialog with a preset card grid, and Patchy now starts with a clean workspace instead of an empty untitled document
+- The tool palette is reorganized into clusters with new Stamp and Gradient/Fill flyouts, options-bar number fields gained slider popups with common values, and document tabs offer Reopen, Reveal in Explorer/Finder, and Copy File Path
+
+## 0.20 - July 15, 2026
+
+- New classic Healing Brush transfers detail from an Alt-clicked source while adapting it to the destination tone. Aligned sampling, adjustable Diffusion, selections, palette mode, and ordinary PSD/PSB pixel round-trips are supported
+- New Dodge, Burn, Sponge, Blur, and Sharpen brushes provide local tone, color, and detail corrections. They share Size, Softness, and Strength controls, include tonal-range and vibrance options, respect selections and palette mode, and save as ordinary Photoshop-compatible layer pixels
+- Unsharp Mask and Motion Blur now work as editable native Smart Filters, with Photoshop-compatible settings, PSD descriptors, shared masks, blending, and stack controls. Their destructive Filter menu versions use the same calibrated renderers
+- Brush painting now has separate Opacity and Flow controls plus timed Airbrush buildup while the pointer is held still. Flow uses fixed spatial dabs, respects the per-stroke opacity ceiling, works on grayscale mask targets, and saves as ordinary PSD/PSB pixels
+- New Plastic Wrap filter adds adjustable highlight strength, detail, and smoothness. It is available destructively, in the Filter Gallery's Artistic category, and as an editable Photoshop-compatible Smart Filter in PSD files
+- New Filter Gallery with 29 effects across photo looks, blur, sharpen, distort, noise, pixelate, stylize, render, and artistic categories. Search and favorites make effects easy to find, while full-resolution live preview, reorderable effect stacks, per-effect opacity and blending, and reusable Saved Looks support more involved recipes
+- Smart Filters now use Photoshop-compatible native PSD data. Smart Objects can carry editable stacks of Gaussian Blur, High Pass, Median, Dust & Scratches, Surface Blur, Unsharp Mask, Motion Blur, and Plastic Wrap, with per-filter visibility and blending plus one shared paintable mask. Supported stacks survive PSD round-trips and rebuild from the original Smart Object contents after edits and transforms
+- Camera raw support opens CR2, CR3, NEF, ARW, RAF, DNG, and more through a 16-bit develop dialog with white balance, exposure, highlight recovery, contrast, highlights, shadows, saturation, vibrance, demosaic, and noise-reduction controls
+- HEIC and HEIF photos now open read-only through platform codecs, including orientation and color-profile handling. Windows offers Store links when a required codec is missing, while Linux explains how to install its optional Flatpak codec extension
+- Layer styles gained Pattern Overlay, Satin, gradient midpoints, expanded Bevel & Emboss controls, and Photoshop-compatible pattern data. A new Styles page and Style Manager add 39 built-in presets plus .asl import/export
+- Pattern and gradient libraries now support Photoshop .pat and .grd files. The Pattern Manager can also import ordinary images, while 20 bundled CC0 photo textures and 13 matching material styles provide ready-to-use wood, stone, metal, fabric, and ground surfaces
+- The Filter Gallery collection adds High Pass, Median, Dust & Scratches, Surface Blur, and Tilt-Shift Blur. Tilt-Shift includes a draggable on-image focus control, while the supported classic blur and sharpen filters can be added directly to native Smart Filter stacks
+- Text editing gained a searchable font picker with live type specimens and a Character panel for leading, tracking, and horizontal or vertical glyph scaling. Imported PSD text now follows Photoshop's leading, tracking, scaling, transform, and first-baseline behavior more closely
+- Curves has a new point editor and .acv preset support, CMYK PSD files now use their embedded ICC profiles for pixels, text, and effect colors, and gradients gained Classic, Perceptual, and Linear interpolation with Photoshop-compatible alignment
+- New Quick Mask mode lets brushes and other paint tools edit a selection through a red overlay before converting it back to marching ants
+- Resolution and measurement handling now matches Photoshop more closely: image resolution is independent metadata, rulers can use pixels, inches, centimeters, millimeters, points, or percent, and Image Size, New Document, Smart Object placement, and printing share the same PPI model
+- Photoshop Fill Opacity now reads, renders, edits, and writes through PSD files, including the special Fill behavior used by Color Burn, Linear Burn, Color Dodge, Linear Dodge, and Difference
+- Fixed Stroke styles on masked layers, filter-stack reordering, Smart Filter conversion state, macOS scanner flow, text Bold/Italic shortcuts, gradient alignment, Blend If controls, and several session-close and revision-cache bugs
+
+## 0.16 - July 11, 2026
+
+- New Channels panel with editable saved alpha channels, read-only RGB component previews, selection save/load, colored overlays, and lossless PSD/PSB preservation of spot channels
+- Smart Objects now round-trip through PSD and PSB files, including embedded and linked content. Place or convert layers, edit or replace contents, update or relink external files, embed linked objects, duplicate them independently, and rasterize them when needed
+- New Warp Transform tool with a draggable 4x4 cage, live preview, and Photoshop-compatible style presets. Smart Objects keep the warp non-destructive, while pixel layers apply it in one undoable step
+- Warp Text supports all 15 Photoshop warp styles plus horizontal and vertical distortion, with a live dialog preview and editable text preserved through Photoshop round-trips
+- Documents can float in separate OS windows: drag tabs out to float them, drop windows on the tab bar to dock them, or use Window > Tile, Cascade, Float All in Windows, and Consolidate All to Tabs
+- Clipping masks now render and round-trip through PSD files, with Ctrl+Alt+G, clickable row badges, and Photoshop-style Alt-click between layer rows. View Layer Mask shows a mask in grayscale and selects it for painting
+- Hue/Saturation Colorize now renders, loads, and saves as a native PSD adjustment. CMYK PSD fixes restore effect and text colors, accept empty layer channels, and improve imported adjustment-layer clipping behavior
+- Text edits now show apply and cancel buttons in the options bar, new text layers appear in the Layers panel as soon as editing starts, and layer badges open their matching Smart Object or Layer Style controls
+- Fixed transparent Smart Object pixels turning black after PSD/PSB saves, phantom masks appearing on some files, and slow zooming or panning on very large documents
+
+## 0.15 - July 8, 2026
+
+- New file formats, all reading and writing: Windows icons and cursors (ICO/CUR, every embedded size opens as a layer), Targa (TGA), GIF, Aseprite (.aseprite/.ase, layers with blend modes and opacity round-trip), PCX, and Amiga IFF/ILBM
+- Sprite sheet workflow for game development: File > Export Layers as Sprite Sheet renders each visible top-level layer into a padded grid, and File > Import > Sprite Sheet to Layers slices a sheet back into layers
+- View > Seamless Tile Preview: a live tiled preview window for authoring seamless textures, with drag panning and a resizable, remembered window
+- Import images directly from a scanner or camera (File > Import, Windows)
+- Export at 2x-8x nearest-neighbor scale for crisp pixel-art upscaling
+- Six new blend modes - Linear Dodge (Add), Subtract, Divide, Exclusion, Hue, and Color - completing the Photoshop set; Hue/Saturation/Color/Luminosity now use the exact math Photoshop and Aseprite share
+- Open Recent Folder now remembers up to 200 folders in paginated submenus
+
+## 0.14 - July 8, 2026
+
+- The color picker's swatch column is now palette-driven: a dropdown switches between Basic colors, the current document palette, a loaded palette file, and built-in presets, and you can load and save palette files (.pal/.gpl/.hex/.act/.aco/.ase) right from the picker
+- Drag and drop colors between the palette grid, the current-color preview, and custom slots, with focus-aware Edit > Cut/Copy/Paste; edit the current and loaded-file palettes in place (built-in presets stay read-only) and set a custom slot with one button
+- New built-in DOS / VGA 256 and Dink Smallwood palettes, and the Palette panel can copy hex codes and push a clicked swatch straight into an open color picker
+- Convert to Indexed's preview now zooms and pans at full resolution and shows a progress bar while applying, and Image > Mode > RGB Color can keep the palettized look by snapping off-palette layers
+- Large documents are dramatically faster to edit: dirty-rectangle undo/redo, parallel compositing, and smarter caches make the standard large-document stress test roughly seven times faster, and big canvases keep the previous frame during recomposites and undo instead of flashing a checkerboard
+- Drop Shadow Spread and Inner Shadow/Glow Choke now expand the shape geometrically before blurring, matching Photoshop (high Spread/Choke no longer produces square chunks or fringes)
+- macOS dialogs now match the Windows layout (compact dynamics popup, growing form fields, classic scrollbars, dark tab bars) and no longer drop behind the main window or overlap label text with checkboxes
+- Crop to Selection now recenters the cropped image in the viewport
+
+## 0.13 - July 6, 2026
+
+- Patchy is now cross-platform: a native macOS build (Apple Silicon, signed and notarized DMG) and a Linux build (Flatpak bundle), with the same features and byte-identical file formats on all three platforms
+- New palettized (indexed color) editing mode for pixel art and retro game development: Image > Mode > Indexed constrains painting to a palette with a WYSIWYG canvas, and a Palette panel offers built-in retro presets (NES, C64, Game Boy, PICO-8, and more), palette files (.pal/.gpl/.hex/.act/.aco/.ase), drag-to-swap entries, and swatch copy/paste
+- Convert existing art to a palette with optional dithering, snap stray pixels back with Image > Snap to Palette, round-trip the palette through PSD files, and export exact indexed PNG-8 and 2/4/8-bit BMP
+- Unlike Photoshop's indexed mode, palettized editing doesn't flatten or lock anything: layers, layer styles, effects, text, and filters keep working, previewed through the palette live
+- macOS feels native: global menu bar with standard About/Settings placement (Cmd+,), Photoshop-style Cmd shortcuts, delete key clears layers, trackpad pinch-to-zoom with two-finger panning, Finder double-click opens into the running app, titlebar document proxy and dirty-dot conventions
+- Linux integrates properly: portal file dialogs, desktop entry with file associations, Wayland and X11 support, and update notices that offer a one-line copy-paste install command
+- Delete now pops magnetic-lasso anchors mid-trace (matching Backspace) instead of clearing the layer, on every platform
+- Fixed a crash when closing the window while an inline text edit was still open
+
+## 0.12 - July 5, 2026
+
+- New Magnetic Lasso sub-tool traces object edges live, supports manual correction anchors, Backspace/Enter/double-click editing, and anti-aliased selection commits
+- Stroke layer styles now match Photoshop's inside/center/outside edge bands more closely, including correct center width and a new Stroke blend mode control
+- Brush dynamics gained per-setting control sources like Fade, Pen Pressure, Pen Tilt, Pen Rotation, and Stylus Wheel, with broader `.abr` import support
+- Soft bitmap brush tips now blend overlapping stamps without light seams, improving pattern brushes and self-crossing strokes ([@mcapogna](https://github.com/mcapogna))
+- Rectangle and ellipse tools gained Fixed Ratio, Fixed Size, Alt draw-from-center, and live size readouts while dragging
+- Brush-size hotkeys now scale proportionally with the current brush size, so large brushes resize quickly while small brushes keep fine control
+- Eyedropper and color-picker workflows are smoother, with a shared eyedropper cursor, better picker window behavior, and live color updates
+- Fixed Windows snap/maximize edge cases ([@mcapogna](https://github.com/mcapogna)) and shape-option syncing across new or switched documents
+
+## 0.11 - July 4, 2026
+
+- Bitmap brush tips: import Photoshop `.abr` brush sets, organize them in a brush manager with folders, define a tip from a selection, and pick from 36 built-in tips (natural media plus stamp and pattern brushes); brush size now goes up to 512px with edge softness
+- Brush dynamics (Photoshop-compatible): per-dab size, angle, roundness, scatter, and count jitter, imported from `.abr` presets and editable per tip or on the Round brush
+- New Quick Select tool (Shift+W): brush over an object and Patchy selects it, with Add/Subtract modes, Sample All Layers, and Enhance Edge
+- Gradient Overlay layer effect rebuilt around a two-track editor with draggable color and opacity stops, blend mode, reverse, and style controls
+- Fresh hand-authored tool palette icons that stay crisp at any display scale, with Photoshop-style flyout corner indicators that open on a short hold
+- Editable zoom percentage box in the status bar; Zoom In/Out and Actual Pixels now stay centered instead of panning the canvas off screen
+- Eyedropper shows the picked R, G, B and hex values and live-updates an open Foreground Color panel
+- Delete on a text layer removes the whole text object instead of erasing its pixels (matches Photoshop)
+- Smoother, non-blinking marching-ants selection outline
+- Fixed feathered Add/Subtract selections deleting the whole selection, and added a corner-radius option to the rectangular marquee
+
+## 0.10 - June 29, 2026
+
+- Zoom tool improvements: clearer zoom-in/zoom-out cursor badges, point zooming from the grey canvas area, and edge-clamped marquee zoom ([@mcapogna](https://github.com/mcapogna))
+- Gradient tool improvements: gradient fills preview live while dragging, and the gradient stop editor is easier to edit and adjust ([@mcapogna](https://github.com/mcapogna))
+- Toolbar sliders now drag smoothly and jump directly to the clicked spot instead of stepping there ([@mcapogna](https://github.com/mcapogna))
+- Eyedropper can sample colors by dragging from Patchy onto the screen ([@mcapogna](https://github.com/mcapogna))
+- Marquee and lasso selections have better undo/redo, mode handling, and previews ([@mcapogna](https://github.com/mcapogna)); selection history now has Japanese translations
+- Fixed frameless window border artifacts and maximize regressions
+
+## 0.9 - June 22, 2026
+
+- Merge Down now flattens folders and any multi-selection, discarding hidden layers (matches Photoshop)
+- Single-instance: double-clicking a file in Explorer opens it in the existing window instead of launching a new copy
+- 32-bit BMPs (and other flat images) import their per-pixel alpha as an editable layer mask
+- Selection tools: drag the outline to move it, arrow-key nudge, click-to-deselect, grey-area selection, lasso improvements, and combine-mode cursor badges ([@mcapogna](https://github.com/mcapogna))
+- Shape tools: antialiased soft/thick outlines and fills, rounded-corner rectangles, Shift for 1:1, and dedicated Fill opacity/softness
+- Open dialog remembers the last folder; new Open Recent Folder menu with copy-path and open-in-explorer actions
+- Fixed Ctrl+T transform nudge so arrow keys move the bounding box with the pixels
+- Splash screen dismisses faster
+- Improved color picker with new sliders and wheels

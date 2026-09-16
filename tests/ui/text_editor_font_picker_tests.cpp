@@ -1,0 +1,2065 @@
+#include "ui/canvas_widget.hpp"
+#include "core/adjustment_layer.hpp"
+#include "core/contour_presets.hpp"
+#include "core/gradient_presets.hpp"
+#include "core/layer_metadata.hpp"
+#include "core/pattern_presets.hpp"
+#include "core/smart_filter.hpp"
+#include "core/smart_filter_effects.hpp"
+#include "core/smart_object.hpp"
+#include "core/text_warp.hpp"
+#include "ui/smart_object_render.hpp"
+#include "core/layer_tree.hpp"
+#include "core/palette.hpp"
+#include "core/palette_presets.hpp"
+#include "ui/palette_panel.hpp"
+#include "ui/pattern_library.hpp"
+#include "ui/pattern_manager_dialog.hpp"
+#include "ui/photo_pattern_presets.hpp"
+#include "ui/style_browser.hpp"
+#include "ui/style_library.hpp"
+#include "ui/style_manager_dialog.hpp"
+#include "psd/asl_io.hpp"
+#include "psd/psd_binary.hpp"
+#include "psd/psd_layer_effects.hpp"
+#include "core/style_presets.hpp"
+#include "ui/brush_tip_library.hpp"
+#include "ui/brush_tip_manager_dialog.hpp"
+#include "ui/brush_tip_picker.hpp"
+#include "ui/blend_if_range_editor.hpp"
+#include "ui/color_panel.hpp"
+#include "ui/default_brush_tips.hpp"
+#include "ui/dialog_utils.hpp"
+#include "ui/document_float_window.hpp"
+#include "ui/compatibility_report.hpp"
+#include "ui/curves_editor.hpp"
+#include "ui/curves_presets.hpp"
+#include "ui/filter_workflows.hpp"
+#include "ui/filter_look_library.hpp"
+#include "ui/font_picker.hpp"
+#include "ui/user_fonts.hpp"
+#include "formats/miniz/miniz.h"
+#include "ui/gradient_stops_editor.hpp"
+#include "ui/gradient_library.hpp"
+#include "ui/gradient_manager_dialog.hpp"
+#include "formats/acv_curves_io.hpp"
+#include "formats/bmp_document_io.hpp"
+#include "formats/aseprite_document_io.hpp"
+#include "formats/ico_document_io.hpp"
+#include "formats/tga_document_io.hpp"
+#include "ui/image_document_io.hpp"
+#include "ui/image_save_options_dialog.hpp"
+#include "ui/layer_list_widget.hpp"
+#include "ui/layer_style_dialog.hpp"
+#include "ui/localization.hpp"
+#include "ui/main_window.hpp"
+#include "ui/print_dialog.hpp"
+#include "ui/selection_outline.hpp"
+#include "ui/sprite_sheet_dialog.hpp"
+#include "ui/splash_dialog.hpp"
+#include "ui/app_settings.hpp"
+#include "ui/update_checker.hpp"
+#include "ui/visual_filter_gallery_dialog.hpp"
+#include "ui/zoomable_image_preview.hpp"
+#include "ui/zoom_status_bar.hpp"
+#include "filters/builtin_filters.hpp"
+#include "psd/psd_document_io.hpp"
+#include "psd/psd_filter_effects.hpp"
+#include "render/compositor.hpp"
+#include "synthetic_dng.hpp"
+#include "test_fonts.hpp"
+#include "test_harness.hpp"
+#include "local_psd_fixtures.hpp"
+
+#include <QAbstractItemModel>
+#include <QAbstractSpinBox>
+#include <QAbstractItemView>
+#include <QAbstractTextDocumentLayout>
+#include <QAction>
+#include <QApplication>
+#include <QBuffer>
+#include <QByteArray>
+#include <QCheckBox>
+#include <QClipboard>
+#include <QComboBox>
+#include <QContextMenuEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDataStream>
+#include <QDockWidget>
+#include <QDir>
+#include <QDoubleSpinBox>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFont>
+#include <QFontComboBox>
+#include <QFontDatabase>
+#include <QFrame>
+#include <QGroupBox>
+#include <QImage>
+#include <QImageReader>
+#include <QImageWriter>
+#include <QInputDevice>
+#include <QInputDialog>
+#include <QKeyEvent>
+#include <QItemSelectionModel>
+#include <QLabel>
+#include <QLineEdit>
+#include <QList>
+#include <QListView>
+#include <QLayout>
+#include <QListWidget>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTemporaryDir>
+#include <QLocale>
+#include <QSizeGrip>
+#include <QMetaObject>
+#include <QMouseEvent>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMimeData>
+#include <QMessageBox>
+#include <QIODevice>
+#include <QLinearGradient>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPointer>
+#include <QPolygonF>
+#include <QThread>
+#include <QPaintEvent>
+#include <QPixmap>
+#include <QPointingDevice>
+#include <QProcess>
+#include <QProgressDialog>
+#include <QPushButton>
+#include <QStackedWidget>
+#include <QRadioButton>
+#include <QSpinBox>
+#include <QStringList>
+#include <QScrollBar>
+#include <QScreen>
+#include <QSettings>
+#include <QSlider>
+#include <QStandardItemModel>
+#include <QStandardPaths>
+#include <QStatusBar>
+#include <QStyle>
+#include <QStyleOptionSlider>
+#include <QStyleOptionSpinBox>
+#include <QTabBar>
+#include <QTabWidget>
+#include <QTableWidget>
+#include <QTabletEvent>
+#include <QTest>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextEdit>
+#include <QTextDocument>
+#include <QTextFragment>
+#include <QTextLayout>
+#include <QTimer>
+#include <QToolBar>
+#include <QToolButton>
+#include <QTreeWidget>
+#include <QUrl>
+#include <QVariant>
+#include <QWheelEvent>
+#include <QWindow>
+#include <QWidget>
+
+#include <algorithm>
+#include <atomic>
+#include <array>
+#include <cstdint>
+#include <cmath>
+#include <cstring>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include "ui_test_access.hpp"
+#include "ui_test_groups.hpp"
+#include "ui_test_support.hpp"
+
+namespace {
+
+using namespace patchy::test::ui;
+
+void ui_text_tool_creates_visible_text_layer() {
+  SettingsValueRestorer saved_text_smoothing(QStringLiteral("tools/textSmoothing"));
+  auto settings = patchy::ui::app_settings();
+  settings.remove(QStringLiteral("tools/textSmoothing"));
+  settings.sync();
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* layer_list = window.findChild<QListWidget*>(QStringLiteral("layerList"));
+  CHECK(layer_list != nullptr);
+
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  canvas->set_primary_color(QColor(40, 220, 120));
+  const auto layer_count_before_click = layer_list->count();
+  const QPoint text_document_point(100, 105);
+  const auto text_widget_point = canvas->widget_position_for_document_point(text_document_point);
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  // The layer row appears the moment the tool clicks (Photoshop behavior), before any commit.
+  CHECK(layer_list->count() == layer_count_before_click + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Type"));
+  CHECK(layer_list->currentRow() == 0);
+  CHECK(editor->pos() == text_widget_point);
+  CHECK(editor->frameShape() == QFrame::NoFrame);
+  CHECK(editor->font().pixelSize() > 0);
+  CHECK(editor->document()->documentMargin() == 0.0);
+  CHECK(editor->property("patchy.documentTextSize").toInt() == 48);
+  CHECK(editor->document()->textWidth() == editor->width());
+  CHECK(!editor->styleSheet().contains(QStringLiteral("font-size:")));
+  auto* text_size = window.findChild<QDoubleSpinBox*>(QStringLiteral("textSizeSpin"));
+  auto* text_smoothing = window.findChild<QComboBox*>(QStringLiteral("textSmoothingCombo"));
+  auto* text_color = window.findChild<QPushButton*>(QStringLiteral("textColorButton"));
+  CHECK(text_size != nullptr);
+  CHECK(text_smoothing != nullptr);
+  CHECK(text_color != nullptr);
+  // The bar has no B/I buttons (Photoshop model): the style picker and Ctrl+B/Ctrl+I are the
+  // face controls.
+  CHECK(window.findChild<QPushButton*>(QStringLiteral("textBoldButton")) == nullptr);
+  CHECK(window.findChild<QPushButton*>(QStringLiteral("textItalicButton")) == nullptr);
+  CHECK(text_smoothing->currentData().toInt() == 3);
+  CHECK(editor->property("patchy.documentTextAntiAlias").toInt() == 3);
+  CHECK(editor->property("patchy.documentTextColor").value<QColor>() == QColor(40, 220, 120));
+  text_color->click();
+  QApplication::processEvents();
+  bool changed_text_color = false;
+  for (auto* widget : QApplication::topLevelWidgets()) {
+    if (widget->objectName() != QStringLiteral("patchyColorDialog") || !widget->isVisible()) {
+      continue;
+    }
+    auto* picker = widget->findChild<patchy::ui::PatchyColorPicker*>(QStringLiteral("patchyAdvancedColorPicker"));
+    CHECK(picker != nullptr);
+    picker->setCurrentColor(QColor(20, 70, 240));
+    QApplication::processEvents();
+    widget->close();
+    changed_text_color = true;
+    break;
+  }
+  CHECK(changed_text_color);
+  CHECK(editor->property("patchy.documentTextColor").value<QColor>() == QColor(20, 70, 240));
+  text_size->setFocus();
+  text_size->setValue(text_points_for_pixels(64));
+  QTest::keyClick(editor, Qt::Key_B, Qt::ControlModifier);
+  QTest::keyClick(editor, Qt::Key_I, Qt::ControlModifier);
+  text_smoothing->setCurrentIndex(text_smoothing->findData(0));
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == editor);
+  CHECK(editor->property("patchy.documentTextSize").toInt() == 64);
+  CHECK(editor->property("patchy.documentTextAntiAlias").toInt() == 0);
+  CHECK(editor->font().bold());
+  CHECK(editor->font().italic());
+  CHECK(!editor->styleSheet().contains(QStringLiteral("font-size:")));
+  const auto expected_editor_text_size =
+      std::max(8, static_cast<int>(std::round(editor->property("patchy.documentTextSize").toInt() * canvas->zoom())));
+  editor->selectAll();
+  send_key(*editor, Qt::Key_Backspace);
+  QApplication::processEvents();
+  CHECK(editor->toPlainText().isEmpty());
+  const auto empty_format = editor->currentCharFormat();
+  CHECK(empty_format.foreground().color() == QColor(20, 70, 240));
+  CHECK(empty_format.font().pixelSize() == expected_editor_text_size);
+  CHECK(empty_format.font().bold());
+  CHECK(empty_format.font().italic());
+  editor->insertPlainText(QStringLiteral("Patchy Type"));
+  QApplication::processEvents();
+  const auto first_fragment = editor->document()->begin().begin().fragment();
+  CHECK(first_fragment.isValid());
+  const auto inserted_format = first_fragment.charFormat();
+  CHECK(inserted_format.foreground().color() == QColor(20, 70, 240));
+  CHECK(inserted_format.font().pixelSize() == expected_editor_text_size);
+  CHECK(inserted_format.font().bold());
+  CHECK(inserted_format.font().italic());
+  save_widget_artifact("ui_inline_text_editor", *canvas);
+  editor->setFocus(Qt::OtherFocusReason);
+  QApplication::processEvents();
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  canvas->setFocus(Qt::OtherFocusReason);
+  QApplication::processEvents();
+  canvas->set_show_transform_controls(false);
+
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Patchy Type"));
+  CHECK(layer_list->count() == layer_count_before_click + 1);
+  QApplication::processEvents();
+  const auto committed_text_image = canvas->grab().toImage();
+  bool found_text_pixel = false;
+  for (int y = 0; y < 120 && !found_text_pixel; y += 2) {
+    for (int x = 0; x < 420 && !found_text_pixel; x += 2) {
+      const auto widget_point = canvas->widget_position_for_document_point(text_document_point + QPoint(x, y));
+      if (!committed_text_image.rect().contains(widget_point)) {
+        continue;
+      }
+      found_text_pixel =
+          !color_close(committed_text_image.pixelColor(widget_point), QColor(255, 255, 255), 15);
+    }
+  }
+  CHECK(found_text_pixel);
+  CHECK(count_blended_document_pixels(*canvas, QRect(text_document_point, QSize(360, 90)),
+                                      QColor(20, 70, 240), QColor(Qt::white), 2) == 0);
+
+  require_action_by_text(window, QStringLiteral("Brush"))->trigger();
+  auto* background = require_layer_item(*layer_list, QStringLiteral("Background"));
+  layer_list->clearSelection();
+  layer_list->setCurrentItem(background);
+  background->setSelected(true);
+  QApplication::processEvents();
+  const auto reedit_widget_point = text_widget_point + QPoint(18, 18);
+  send_mouse(*canvas, QEvent::MouseButtonDblClick, reedit_widget_point, Qt::LeftButton, Qt::LeftButton);
+  QApplication::processEvents();
+  auto* reedit = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(reedit != nullptr);
+  process_events_for(120);
+  // Plain point text now edits through the live baked preview (render_text_pixels every keystroke) so
+  // the glyphs match the committed layer's renderer -- no shift/antialiasing change on enter/leave edit.
+  CHECK(reedit->property("patchy.previewPaintsText").toBool());
+  CHECK(reedit->property("patchy.textPreviewLayerId").isValid());
+  CHECK(reedit->toPlainText() == QStringLiteral("Patchy Type"));
+  CHECK(!reedit->textCursor().hasSelection());
+  CHECK(reedit->textCursor().position() <= 2);
+  CHECK(reedit->pos() == text_widget_point);
+  reedit->setPlainText(QStringLiteral("Canceled Type"));
+  send_key(*reedit, Qt::Key_Escape);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before_click + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Patchy Type"));
+
+  send_mouse(*canvas, QEvent::MouseButtonDblClick, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  QApplication::processEvents();
+  reedit = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(reedit != nullptr);
+  CHECK(reedit->toPlainText() == QStringLiteral("Patchy Type"));
+  text_size->setValue(text_points_for_pixels(72));
+  QTest::keyClick(reedit, Qt::Key_B, Qt::ControlModifier);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == reedit);
+  CHECK(reedit->property("patchy.documentTextSize").toInt() == 72);
+  CHECK(!reedit->font().bold());
+  CHECK(reedit->font().italic());
+  reedit->setPlainText(QStringLiteral("Continue"));
+  QApplication::processEvents();
+  CHECK(reedit->lineWrapMode() == QTextEdit::NoWrap);
+  CHECK(reedit->document()->idealWidth() <= static_cast<qreal>(reedit->width() + 1));
+  CHECK(reedit->document()->blockCount() == 1);
+  reedit->setPlainText(QStringLiteral("Updated Type"));
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  QApplication::processEvents();
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before_click + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Updated Type"));
+
+  const auto before_brush = canvas->grab().toImage();
+  require_action_by_text(window, QStringLiteral("Brush"))->trigger();
+  canvas->set_brush_size(34);
+  canvas->set_primary_color(QColor(230, 20, 30));
+  drag(*canvas, text_widget_point, text_widget_point + QPoint(1, 1));
+  QApplication::processEvents();
+  const auto after_brush = canvas->grab().toImage();
+  CHECK(color_close(after_brush.pixelColor(text_widget_point), before_brush.pixelColor(text_widget_point), 2));
+  save_widget_artifact("ui_text_tool_layer", window);
+}
+
+void ui_text_editor_ctrl_b_and_ctrl_i_toggle_formatting() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* style_combo = window.findChild<QComboBox*>(QStringLiteral("textStyleCombo"));
+  CHECK(style_combo != nullptr);
+
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  const auto text_widget_point = canvas->widget_position_for_document_point(QPoint(100, 105));
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+
+  QPointer<QTextEdit> editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  editor->setFocus(Qt::OtherFocusReason);
+  editor->selectAll();
+  QTest::keyClick(editor.data(), Qt::Key_B, Qt::ControlModifier);
+  QTest::keyClick(editor.data(), Qt::Key_I, Qt::ControlModifier);
+  QApplication::processEvents();
+
+  const bool editor_stayed_open = editor != nullptr &&
+                                  canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == editor;
+  const auto format = editor_stayed_open ? editor->textCursor().charFormat() : QTextCharFormat{};
+  // The style picker tracks the shortcuts now that it is the only face control in the bar.
+  const auto picker_face = style_combo != nullptr ? style_combo->currentData().toString() : QString();
+  if (editor != nullptr) {
+    send_key(*editor, Qt::Key_Escape);
+  }
+  QApplication::processEvents();
+
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(editor_stayed_open);
+  CHECK(format.font().bold());
+  CHECK(format.font().italic());
+  CHECK(picker_face.compare(QStringLiteral("Bold Italic"), Qt::CaseInsensitive) == 0);
+}
+
+void ui_text_tool_outside_click_commits_without_new_text_editor() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* layer_list = window.findChild<QListWidget*>(QStringLiteral("layerList"));
+  CHECK(layer_list != nullptr);
+
+  auto* type_action = require_action_by_text(window, QStringLiteral("Type"));
+  type_action->trigger();
+  const auto layer_count_before_click = layer_list->count();
+  const QPoint text_document_point(90, 90);
+  const auto text_widget_point = canvas->widget_position_for_document_point(text_document_point);
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  CHECK(layer_list->count() == layer_count_before_click + 1);
+  editor->setPlainText(QStringLiteral("Outside Commit"));
+  QApplication::processEvents();
+
+  const auto outside_widget_point = canvas->widget_position_for_document_point(QPoint(310, 220));
+  send_mouse(*canvas, QEvent::MouseButtonPress, outside_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, outside_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+
+  CHECK(type_action->isChecked());
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before_click + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Outside Commit"));
+  save_widget_artifact("ui_text_outside_click_commit", window);
+}
+
+// Desktop simulation of the wasm click-off re-entrancy bug (same harness shape as
+// ui_move_commit_ignores_reentrant_input_during_processing_wait): the click-off press moves focus
+// to the canvas BEFORE delivery, the focus-loss handler arms swallow_next_canvas_left_press_ and
+// commits, and the commit's undo-snapshot wait pumps a nested loop that wasm delivers the mouseup
+// into synchronously. The release used to clear the swallow flag before the press that armed it
+// resumed delivery, so the resumed press began a text-rect drag and the parked-and-replayed
+// release opened a brand-new text session from a single click off. The press must run the real
+// window-system path (QTest on the window): focus moves before delivery and
+// QApplication::mouseButtons() reports the button down, which is what arms the flag; sendEvent to
+// the canvas skips both and exercises the other (press-first) commit guard instead.
+void ui_text_click_off_commit_ignores_reentrant_release_during_wait() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* layer_list = window.findChild<QListWidget*>(QStringLiteral("layerList"));
+  CHECK(layer_list != nullptr);
+
+  auto* type_action = require_action_by_text(window, QStringLiteral("Type"));
+  type_action->trigger();
+  const auto layer_count_before_click = layer_list->count();
+  const auto text_widget_point = canvas->widget_position_for_document_point(QPoint(90, 90));
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  editor->setPlainText(QStringLiteral("Reentrant Commit"));
+  QApplication::processEvents();
+
+  EnvironmentVariableRestorer restore_overlay_delay("PATCHY_PROCESSING_OVERLAY_DELAY_MS");
+  EnvironmentVariableRestorer restore_undo_delay("PATCHY_UNDO_SNAPSHOT_TEST_DELAY_MS");
+  qputenv("PATCHY_PROCESSING_OVERLAY_DELAY_MS", QByteArray("0"));
+  qputenv("PATCHY_UNDO_SNAPSHOT_TEST_DELAY_MS", QByteArray("250"));
+
+  // Fires inside the commit's undo-snapshot wait (~60 ms into the 250 ms sleep; the wait pumps
+  // timers once the overlay shows, and overlay delay 0 shows it on the first tick), landing the
+  // release on the canvas exactly the way wasm delivers DOM input into a suspended nested loop.
+  const auto outside_widget_point = canvas->widget_position_for_document_point(QPoint(310, 220));
+  auto releases_injected_during_wait = std::make_shared<int>(0);
+  QTimer::singleShot(60, canvas, [canvas, outside_widget_point, releases_injected_during_wait] {
+    if (!canvas->processing_overlay_visible()) {
+      return;
+    }
+    ++*releases_injected_during_wait;
+    QMouseEvent release(QEvent::MouseButtonRelease, outside_widget_point,
+                        canvas->mapToGlobal(outside_widget_point), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(canvas, &release);
+  });
+
+  auto* window_handle = window.windowHandle();
+  CHECK(window_handle != nullptr);
+  const auto press_window_point = canvas->mapTo(&window, outside_widget_point);
+  QTest::mousePress(window_handle, Qt::LeftButton, Qt::NoModifier, press_window_point);
+  QApplication::processEvents();
+  CHECK(*releases_injected_during_wait == 1);
+  QTest::mouseRelease(window_handle, Qt::LeftButton, Qt::NoModifier, press_window_point);
+  qputenv("PATCHY_UNDO_SNAPSHOT_TEST_DELAY_MS", QByteArray("0"));
+  QApplication::processEvents();
+
+  // The click off committed the session and did NOT open a new one; that takes a second click.
+  CHECK(type_action->isChecked());
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before_click + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Reentrant Commit"));
+}
+
+void ui_delete_key_action_removes_text_layer_object() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* layer_list = window.findChild<QListWidget*>(QStringLiteral("layerList"));
+  CHECK(layer_list != nullptr);
+  auto& document = patchy::ui::MainWindowTestAccess::document(window);
+  const auto layer_count_before = layer_list->count();
+
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  const QPoint text_document_point(90, 90);
+  const auto text_widget_point = canvas->widget_position_for_document_point(text_document_point);
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  editor->setPlainText(QStringLiteral("Delete Me"));
+  QApplication::processEvents();
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  QApplication::processEvents();
+  canvas->set_show_transform_controls(false);
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before + 1);
+  const auto text_layer_id = document.active_layer_id();
+  CHECK(text_layer_id.has_value());
+  const auto* text_layer = document.find_layer(*text_layer_id);
+  CHECK(text_layer != nullptr);
+  CHECK(patchy::layer_is_text(*text_layer));
+
+  // While a text edit is in progress the clear action leaves the layer alone;
+  // Delete belongs to typing.
+  send_mouse(*canvas, QEvent::MouseButtonDblClick, text_widget_point + QPoint(12, 12), Qt::LeftButton,
+             Qt::LeftButton);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) != nullptr);
+  require_action(window, "layerClearAction")->trigger();
+  QApplication::processEvents();
+  auto* reedit = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(reedit != nullptr);
+  CHECK(document.find_layer(*text_layer_id) != nullptr);
+  send_key(*reedit, Qt::Key_Escape);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+
+  // With a marquee selection the clear action refuses instead of erasing the
+  // glyph pixels out from under the still-live text object.
+  canvas->set_tool(patchy::ui::CanvasTool::Marquee);
+  drag(*canvas, canvas->widget_position_for_document_point(QPoint(70, 70)),
+       canvas->widget_position_for_document_point(QPoint(230, 170)));
+  CHECK(canvas->has_selection());
+  require_action(window, "layerClearAction")->trigger();
+  QApplication::processEvents();
+  CHECK(document.find_layer(*text_layer_id) != nullptr);
+  CHECK(window.statusBar()->currentMessage().contains(QStringLiteral("Deselect")));
+  require_action(window, "editDeselectAction")->trigger();
+  QApplication::processEvents();
+  CHECK(!canvas->has_selection());
+
+  // Delete on the committed text object removes the whole layer, Photoshop-style.
+  require_action(window, "layerClearAction")->trigger();
+  QApplication::processEvents();
+  CHECK(layer_list->count() == layer_count_before);
+  CHECK(document.find_layer(*text_layer_id) == nullptr);
+  CHECK(window.statusBar()->currentMessage().contains(QStringLiteral("Deleted layer")));
+
+  // The text tool finds nothing left there: a click starts a fresh empty editor
+  // instead of resurrecting the deleted text.
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point + QPoint(12, 12), Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point + QPoint(12, 12), Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  auto* fresh = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(fresh != nullptr);
+  CHECK(!fresh->property("patchy.editingLayerId").isValid());
+  CHECK(fresh->toPlainText() != QStringLiteral("Delete Me"));
+  send_key(*fresh, Qt::Key_Escape);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+
+  // The deletion is a single undoable step.
+  require_action_by_text(window, QStringLiteral("Undo"))->trigger();
+  QApplication::processEvents();
+  CHECK(layer_list->count() == layer_count_before + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Delete Me"));
+}
+
+void ui_text_tool_click_creates_provisional_layer() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* layer_list = window.findChild<QListWidget*>(QStringLiteral("layerList"));
+  CHECK(layer_list != nullptr);
+  auto& document = patchy::ui::MainWindowTestAccess::document(window);
+  auto* undo_action = require_action_by_text(window, QStringLiteral("Undo"));
+  const auto layer_count_before = layer_list->count();
+  const auto active_before = document.active_layer_id();
+  CHECK(active_before.has_value());
+  CHECK(!undo_action->isEnabled());
+
+  // Clicking with the Type tool shows the new layer immediately (Photoshop behavior): the row
+  // appears named after the placeholder and selected, before anything is typed or committed.
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  const QPoint text_document_point(80, 80);
+  const auto text_widget_point = canvas->widget_position_for_document_point(text_document_point);
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  CHECK(layer_list->count() == layer_count_before + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Type"));
+  CHECK(layer_list->currentRow() == 0);
+  CHECK(document.active_layer_id().has_value());
+  CHECK(document.active_layer_id() != active_before);
+
+  // Escape removes the just-created layer, restores the previously active layer, and leaves
+  // history untouched: no phantom undo step.
+  send_key(*editor, Qt::Key_Escape);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before);
+  CHECK(document.active_layer_id() == active_before);
+  CHECK(!undo_action->isEnabled());
+
+  // An empty commit (text cleared, then committing by switching tools) removes it too.
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  CHECK(layer_list->count() == layer_count_before + 1);
+  editor->selectAll();
+  send_key(*editor, Qt::Key_Backspace);
+  QApplication::processEvents();
+  CHECK(editor->toPlainText().isEmpty());
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  QApplication::processEvents();
+  canvas->set_show_transform_controls(false);
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before);
+  CHECK(document.active_layer_id() == active_before);
+  CHECK(!undo_action->isEnabled());
+
+  // A real commit keeps the layer (renamed to the text), under the same id the row has had
+  // since the click, and is ONE undo step back to the pre-click document.
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  const auto provisional_id = document.active_layer_id();
+  CHECK(provisional_id.has_value());
+  editor->setPlainText(QStringLiteral("Immediate Layer"));
+  QApplication::processEvents();
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Immediate Layer"));
+  CHECK(document.active_layer_id() == provisional_id);
+  CHECK(undo_action->isEnabled());
+  undo_action->trigger();
+  QApplication::processEvents();
+  CHECK(layer_list->count() == layer_count_before);
+  CHECK(document.find_layer(*provisional_id) == nullptr);
+  CHECK(!undo_action->isEnabled());
+}
+
+void ui_text_options_bar_accept_cancel_buttons() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* layer_list = window.findChild<QListWidget*>(QStringLiteral("layerList"));
+  CHECK(layer_list != nullptr);
+  auto* undo_action = require_action_by_text(window, QStringLiteral("Undo"));
+  auto* apply_button = window.findChild<QPushButton*>(QStringLiteral("textApplyButton"));
+  auto* cancel_button = window.findChild<QPushButton*>(QStringLiteral("textCancelButton"));
+  auto* font_combo = window.findChild<QFontComboBox*>(QStringLiteral("textFontCombo"));
+  CHECK(apply_button != nullptr);
+  CHECK(cancel_button != nullptr);
+  CHECK(font_combo != nullptr);
+  // NoFocus is load-bearing: a focus-taking button would fire the editor's
+  // focus-loss auto-commit on mouse press, so Cancel would commit instead.
+  CHECK(apply_button->focusPolicy() == Qt::NoFocus);
+  CHECK(cancel_button->focusPolicy() == Qt::NoFocus);
+  // All session apply/cancel buttons (text and transform) render 20px icons; the
+  // QPushButton default of 16px read tiny on the bar.
+  CHECK(apply_button->iconSize() == QSize(20, 20));
+  CHECK(cancel_button->iconSize() == QSize(20, 20));
+  CHECK(window.findChild<QPushButton*>(QStringLiteral("freeTransformApplyButton"))->iconSize() == QSize(20, 20));
+  CHECK(window.findChild<QPushButton*>(QStringLiteral("freeTransformCancelButton"))->iconSize() == QSize(20, 20));
+  CHECK(!apply_button->isVisible());
+  CHECK(!cancel_button->isVisible());
+  const auto layer_count_before = layer_list->count();
+
+  // Selecting the Type tool alone shows the text controls but not the session pair.
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  QApplication::processEvents();
+  CHECK(font_combo->isVisible());
+  CHECK(!apply_button->isVisible());
+  CHECK(!cancel_button->isVisible());
+
+  // Starting an edit session shows apply/cancel while keeping the text controls
+  // visible (unlike a transform session, they apply live to the editor).
+  const auto commit_widget_point = canvas->widget_position_for_document_point(QPoint(80, 80));
+  send_mouse(*canvas, QEvent::MouseButtonPress, commit_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, commit_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  // A failing CHECK while the editor is alive aborts the suite during unwind, so
+  // capture the live-session state into locals and assert after the session ends.
+  const bool session_showed_buttons = apply_button != nullptr && apply_button->isVisible() &&
+                                      cancel_button != nullptr && cancel_button->isVisible();
+  const bool session_enabled_buttons = apply_button != nullptr && apply_button->isEnabled() &&
+                                       cancel_button != nullptr && cancel_button->isEnabled();
+  const bool session_kept_text_controls = font_combo != nullptr && font_combo->isVisible();
+  if (editor != nullptr) {
+    editor->setPlainText(QStringLiteral("Button Commit"));
+    QApplication::processEvents();
+    apply_button->click();
+    QApplication::processEvents();
+  }
+  CHECK(editor != nullptr);
+  CHECK(session_showed_buttons);
+  CHECK(session_enabled_buttons);
+  CHECK(session_kept_text_controls);
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Button Commit"));
+  CHECK(undo_action->isEnabled());
+  CHECK(!apply_button->isVisible());
+  CHECK(!cancel_button->isVisible());
+
+  // Cancel on a NEW session discards the provisional layer and adds no history:
+  // the commit above stays the only undo step.
+  const auto cancel_widget_point = canvas->widget_position_for_document_point(QPoint(200, 400));
+  send_mouse(*canvas, QEvent::MouseButtonPress, cancel_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, cancel_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  const bool cancel_session_showed_buttons = apply_button->isVisible() && cancel_button->isVisible();
+  if (editor != nullptr) {
+    editor->setPlainText(QStringLiteral("Discard Me"));
+    QApplication::processEvents();
+    cancel_button->click();
+    QApplication::processEvents();
+  }
+  CHECK(editor != nullptr);
+  CHECK(cancel_session_showed_buttons);
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before + 1);
+  CHECK(layer_list->item(0)->text() == QStringLiteral("Button Commit"));
+  CHECK(!apply_button->isVisible());
+  CHECK(!cancel_button->isVisible());
+  undo_action->trigger();
+  QApplication::processEvents();
+  CHECK(layer_list->count() == layer_count_before);
+  CHECK(!undo_action->isEnabled());
+}
+
+QWidget* find_font_picker_popup() {
+  QWidget* popup = nullptr;
+  for (auto* widget : QApplication::topLevelWidgets()) {
+    if (widget->objectName() == QStringLiteral("textFontPickerPopup") && widget->isVisible()) {
+      popup = widget;
+    }
+  }
+  return popup;
+}
+
+void ui_text_font_picker_popup_filters_and_commits() {
+  register_test_fonts(TestFontRole::Verdana);
+  if (!QFontDatabase::families().contains(QStringLiteral("Verdana"))) {
+    std::cout << "[SKIP] Verdana unavailable on this machine\n";
+    return;
+  }
+  patchy::ui::MainWindow window;
+  show_window(window);
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  QApplication::processEvents();
+  // The picker must still BE a QFontComboBox named textFontCombo: all existing wiring and
+  // tests find it that way.
+  auto* combo = window.findChild<QFontComboBox*>(QStringLiteral("textFontCombo"));
+  CHECK(combo != nullptr);
+  auto* picker = qobject_cast<patchy::ui::FontPickerCombo*>(combo);
+  CHECK(picker != nullptr);
+
+  int font_changes = 0;
+  QObject::connect(picker, &QFontComboBox::currentFontChanged, picker,
+                   [&font_changes](const QFont&) { ++font_changes; });
+
+  picker->showPopup();
+  QApplication::processEvents();
+  auto* popup = find_font_picker_popup();
+  CHECK(popup != nullptr);
+  auto* search = popup->findChild<QLineEdit*>(QStringLiteral("textFontPickerSearchEdit"));
+  auto* list = popup->findChild<QListView*>(QStringLiteral("textFontPickerList"));
+  CHECK(search != nullptr);
+  CHECK(list != nullptr);
+  const auto unfiltered_rows = list->model()->rowCount();
+
+  QTest::keyClicks(search, QStringLiteral("erda"));
+  QApplication::processEvents();
+  auto* model = list->model();
+  CHECK(model->rowCount() >= 1);
+  CHECK(model->rowCount() < unfiltered_rows);  // substring filter actually narrowed the list
+  int verdana_row = -1;
+  for (int row = 0; row < model->rowCount(); ++row) {
+    const auto family = model->index(row, 0).data(Qt::DisplayRole).toString();
+    CHECK(family.contains(QStringLiteral("erda"), Qt::CaseInsensitive));
+    if (family == QStringLiteral("Verdana")) {
+      verdana_row = row;
+    }
+  }
+  CHECK(verdana_row >= 0);
+  list->setCurrentIndex(model->index(verdana_row, 0));
+  QApplication::processEvents();
+  QTest::keyClick(search, Qt::Key_Return);
+  QApplication::processEvents();
+  CHECK(find_font_picker_popup() == nullptr);
+  CHECK(picker->currentFont().family() == QStringLiteral("Verdana"));
+  CHECK(font_changes == 1);
+}
+
+void ui_text_font_picker_rows_render_in_their_own_font() {
+  register_test_fonts(TestFontRole::Verdana);
+  register_test_fonts(TestFontRole::Wingdings);
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* picker = window.findChild<patchy::ui::FontPickerCombo*>(QStringLiteral("textFontCombo"));
+  CHECK(picker != nullptr);
+
+  if (QFontDatabase::families().contains(QStringLiteral("Verdana"))) {
+    const auto info = picker->family_render_info(QStringLiteral("Verdana"));
+    CHECK(info.latin_capable);
+    CHECK(info.display_font.family() == QStringLiteral("Verdana"));  // row renders in its own face
+    CHECK(info.systems.contains(QFontDatabase::Latin));
+    CHECK(info.row_sample.isEmpty());
+  } else {
+    std::cout << "[SKIP] Verdana unavailable; latin-row checks skipped\n";
+  }
+  if (QFontDatabase::families().contains(QStringLiteral("Wingdings"))) {
+    const auto info = picker->family_render_info(QStringLiteral("Wingdings"));
+    CHECK(!info.latin_capable);
+    // A symbol face cannot draw its own Latin name: the row keeps the UI font for the name
+    // and shows a short run of the family's actual glyphs beside it.
+    CHECK(info.display_font.family() != QStringLiteral("Wingdings"));
+    CHECK(info.systems.contains(QFontDatabase::Symbol));
+    CHECK(!info.row_sample.isEmpty());
+    CHECK(info.row_sample.size() <= 9);  // decoration, not a wall of dingbats
+  } else {
+    std::cout << "[SKIP] Wingdings unavailable; symbol-row checks skipped\n";
+  }
+}
+
+void ui_text_font_picker_preview_shows_supported_scripts() {
+  register_test_fonts(TestFontRole::UiDefault);
+  register_test_fonts(TestFontRole::Verdana);
+  register_test_fonts(TestFontRole::JapaneseGothic);
+  const auto japanese_families = QFontDatabase::families(QFontDatabase::Japanese);
+  if (japanese_families.isEmpty()) {
+    std::cout << "[SKIP] no Japanese-capable font available on this machine\n";
+    return;
+  }
+  patchy::ui::MainWindow window;
+  show_window(window);
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  QApplication::processEvents();
+  auto* picker = window.findChild<patchy::ui::FontPickerCombo*>(QStringLiteral("textFontCombo"));
+  CHECK(picker != nullptr);
+  picker->showPopup();
+  QApplication::processEvents();
+  auto* popup = find_font_picker_popup();
+  CHECK(popup != nullptr);
+  auto* list = popup->findChild<QListView*>(QStringLiteral("textFontPickerList"));
+  auto* preview = popup->findChild<patchy::ui::FontPreviewPane*>(QStringLiteral("textFontPickerPreview"));
+  CHECK(list != nullptr);
+  CHECK(preview != nullptr);
+
+  const auto row_for_family = [list](const QString& family) {
+    auto* model = list->model();
+    for (int row = 0; row < model->rowCount(); ++row) {
+      if (model->index(row, 0).data(Qt::DisplayRole).toString() == family) {
+        return model->index(row, 0);
+      }
+    }
+    return QModelIndex();
+  };
+  const auto select_family = [list, &row_for_family](const QString& family) {
+    const auto index = row_for_family(family);
+    if (!index.isValid()) {
+      return false;
+    }
+    // Keyboard/selection navigation drives the same preview update as mouse hover.
+    list->setCurrentIndex(index);
+    QApplication::processEvents();
+    return true;
+  };
+
+  // The picker lists what QFontComboBox's model holds, which drops private families -- and a
+  // stock macOS leads QFontDatabase::families(Japanese) with dot-prefixed system faces that are
+  // exactly those. Take the first Japanese family the picker actually offers, not the database's
+  // first, or the row is never found.
+  QString japanese_family;
+  for (const auto& family : japanese_families) {
+    if (row_for_family(family).isValid()) {
+      japanese_family = family;
+      break;
+    }
+  }
+  if (japanese_family.isEmpty()) {
+    std::cout << "[SKIP] no Japanese-capable font reaches the picker's list on this machine\n";
+    popup->close();
+    QApplication::processEvents();
+    return;
+  }
+  CHECK(select_family(japanese_family));
+  CHECK(preview->family() == japanese_family);
+  bool has_japanese_line = false;
+  for (const auto& text : preview->line_texts()) {
+    for (const auto& ch : text) {
+      if (ch.unicode() >= 0x3040 && ch.unicode() <= 0x30FF) {  // hiragana/katakana
+        has_japanese_line = true;
+        break;
+      }
+    }
+  }
+  CHECK(has_japanese_line);
+  save_widget_artifact("font_picker_preview_japanese", *popup);
+
+  if (QFontDatabase::families().contains(QStringLiteral("Verdana"))) {
+    CHECK(select_family(QStringLiteral("Verdana")));
+    CHECK(preview->family() == QStringLiteral("Verdana"));
+    const auto lines = preview->line_texts();
+    CHECK(lines.size() >= 2);
+    CHECK(lines.front() == QStringLiteral("Verdana"));  // type-specimen name line leads
+    bool has_pangram = false;
+    for (const auto& text : lines) {
+      if (text.contains(QStringLiteral("quick brown fox"))) {
+        has_pangram = true;
+      }
+    }
+    CHECK(has_pangram);
+    // Minor European scripts collapse into the "Also supports" footer instead of rendering
+    // cryptic sample lines. Expectation comes from what THIS build's font database claims
+    // for Verdana (FreeType and DirectWrite report different sets for the same file).
+    const auto verdana_systems = QFontDatabase::writingSystems(QStringLiteral("Verdana"));
+    QStringList expected_footer_names;
+    for (const auto ws : {QFontDatabase::Greek, QFontDatabase::Cyrillic, QFontDatabase::Armenian,
+                          QFontDatabase::Vietnamese}) {
+      if (verdana_systems.contains(ws)) {
+        expected_footer_names.append(QFontDatabase::writingSystemName(ws));
+      }
+    }
+    if (!expected_footer_names.isEmpty()) {
+      CHECK(!preview->footer_text().isEmpty());
+      CHECK(preview->footer_text().contains(expected_footer_names.front()));
+    }
+  }
+  popup->close();
+  QApplication::processEvents();
+}
+
+void ui_text_font_picker_popup_resizes_and_persists() {
+  {
+    auto settings = patchy::ui::app_settings();
+    settings.remove(QStringLiteral("ui/textFontPickerPopupSize"));
+    settings.sync();
+  }
+  patchy::ui::MainWindow window;
+  show_window(window);
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  QApplication::processEvents();
+  auto* picker = window.findChild<patchy::ui::FontPickerCombo*>(QStringLiteral("textFontCombo"));
+  CHECK(picker != nullptr);
+
+  picker->showPopup();
+  QApplication::processEvents();
+  auto* popup = find_font_picker_popup();
+  CHECK(popup != nullptr);
+  CHECK(popup->findChild<QSizeGrip*>() != nullptr);  // the resize handle
+  CHECK(popup->width() >= 360);                      // first-open default browse size
+  CHECK(popup->height() >= 520);
+
+  popup->resize(500, 600);
+  QApplication::processEvents();
+  popup->close();
+  QApplication::processEvents();
+  CHECK(patchy::ui::app_settings().value(QStringLiteral("ui/textFontPickerPopupSize")).toSize() ==
+        QSize(500, 600));
+
+  // Programmatic reopen: the dismiss-toggle guard only arms when the pointer is over the combo.
+  picker->showPopup();
+  QApplication::processEvents();
+  auto* reopened = find_font_picker_popup();
+  CHECK(reopened != nullptr);
+  CHECK(reopened->size() == QSize(500, 600));
+  reopened->close();
+  QApplication::processEvents();
+}
+
+void ui_text_font_picker_open_while_editing_keeps_text_session() {
+  register_test_fonts(TestFontRole::UiDefault);
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  QApplication::processEvents();
+  auto* picker = window.findChild<patchy::ui::FontPickerCombo*>(QStringLiteral("textFontCombo"));
+  const bool picker_found = picker != nullptr;
+
+  const auto editor_point = canvas->widget_position_for_document_point(QPoint(80, 80));
+  send_mouse(*canvas, QEvent::MouseButtonPress, editor_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, editor_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  // A failing CHECK while the editor is alive aborts the suite during unwind, so capture the
+  // live-session state into locals and assert after the session ends.
+  const bool editor_opened = editor != nullptr;
+  bool popup_seen = false;
+  bool search_focused = false;
+  bool editor_survived_popup_focus = false;
+  if (editor_opened && picker_found) {
+    editor->setPlainText(QStringLiteral("Keep Me"));
+    QApplication::processEvents();
+    picker->showPopup();  // moves focus into the popup's search box
+    QApplication::processEvents();
+    auto* popup = find_font_picker_popup();
+    popup_seen = popup != nullptr;
+    if (popup_seen) {
+      auto* search = popup->findChild<QLineEdit*>(QStringLiteral("textFontPickerSearchEdit"));
+      if (search != nullptr) {
+        search->setFocus();
+        QApplication::processEvents();
+        search_focused = QApplication::focusWidget() == search;
+      }
+      // The popup is a Qt::Popup window, so is_text_option_widget must match it by name;
+      // without that, the focus change above auto-commits and closes the session.
+      editor_survived_popup_focus =
+          canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == editor;
+      popup->close();
+      QApplication::processEvents();
+    }
+    auto* cancel_button = window.findChild<QPushButton*>(QStringLiteral("textCancelButton"));
+    if (cancel_button != nullptr && cancel_button->isVisible()) {
+      cancel_button->click();
+    } else {
+      require_action_by_text(window, QStringLiteral("Move"))->trigger();  // ends any live session
+    }
+    QApplication::processEvents();
+  }
+  CHECK(picker_found);
+  CHECK(editor_opened);
+  CHECK(popup_seen);
+  CHECK(search_focused);
+  CHECK(editor_survived_popup_focus);
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+}
+
+void ui_text_edit_hides_editor_glyphs_and_shows_selection_over_style_preview() {
+  patchy::Document document(420, 240, patchy::PixelFormat::rgba8());
+  document.add_pixel_layer("Background", solid_pixels(420, 240, patchy::PixelFormat::rgba8(), QColor(Qt::white)));
+  auto pixels = solid_pixels(160, 60, patchy::PixelFormat::rgba8(), QColor(0, 0, 0, 0));
+  fill_pixel_rect(pixels, QRect(0, 0, 120, 42), QColor(20, 20, 20, 255));
+
+  patchy::Layer text_layer(document.allocate_layer_id(), "Text: Styled", std::move(pixels));
+  text_layer.set_bounds(patchy::Rect{90, 80, 160, 60});
+  text_layer.metadata()[patchy::kLayerMetadataText] = "Styled";
+  text_layer.metadata()[patchy::kLayerMetadataTextFont] = "Arial";
+  text_layer.metadata()[patchy::kLayerMetadataTextSize] = "36";
+  text_layer.metadata()[patchy::kLayerMetadataTextColor] = "#202020";
+  patchy::LayerDropShadow shadow;
+  shadow.enabled = true;
+  shadow.opacity = 1.0F;
+  shadow.distance = 6.0F;
+  shadow.size = 8.0F;
+  text_layer.layer_style().drop_shadows.push_back(shadow);
+  document.add_layer(std::move(text_layer));
+
+  patchy::ui::MainWindow window;
+  window.add_document_session(std::move(document), QStringLiteral("Styled Text Preview"));
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->set_zoom(0.5);
+  QApplication::processEvents();
+
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  const auto hit_point = canvas->widget_position_for_document_point(QPoint(100, 92));
+  send_mouse(*canvas, QEvent::MouseButtonPress, hit_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, hit_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  process_events_for(80);
+  CHECK(editor->property("patchy.previewPaintsText").toBool());
+  CHECK(editor->property("patchy.textPreviewLayerId").isValid());
+  QTextCursor caret_cursor(editor->document());
+  caret_cursor.setPosition(3);
+  editor->setTextCursor(caret_cursor);
+  QApplication::processEvents();
+  const auto preview_caret = editor->property("patchy.previewCaretRect").toRect();
+  CHECK(!preview_caret.isEmpty());
+  CHECK(preview_caret.width() >= 3);
+  CHECK(editor->viewport()->rect().contains(preview_caret.center()));
+  const auto native_caret = editor->cursorRect();
+  CHECK(std::abs(preview_caret.center().x() - native_caret.center().x()) <= 2);
+  CHECK(std::abs(preview_caret.center().y() - native_caret.center().y()) <= 2);
+  const auto preview_id = editor->property("patchy.textPreviewLayerId").toULongLong();
+  const auto unselected_image = canvas->grab().toImage();
+
+  QTextCursor selection_cursor(editor->document());
+  selection_cursor.setPosition(0);
+  selection_cursor.setPosition(4, QTextCursor::KeepAnchor);
+  editor->setTextCursor(selection_cursor);
+  QApplication::processEvents();
+  const auto preview_selection_rects = editor->property("patchy.previewSelectionRects").toList();
+  CHECK(!preview_selection_rects.empty());
+  for (const auto& rect_value : preview_selection_rects) {
+    CHECK(editor->viewport()->rect().intersects(rect_value.toRect()));
+  }
+  const auto selected_image = canvas->grab().toImage();
+  int changed_pixels = 0;
+  const QRect selection_sample_rect(editor->geometry().topLeft(),
+                                    QSize(std::max(1, editor->width() / 2), std::max(1, editor->height() / 2)));
+  for (int y = selection_sample_rect.top(); y <= selection_sample_rect.bottom(); y += 2) {
+    for (int x = selection_sample_rect.left(); x <= selection_sample_rect.right(); x += 2) {
+      if (!selected_image.rect().contains(QPoint(x, y)) || !unselected_image.rect().contains(QPoint(x, y))) {
+        continue;
+      }
+      const auto before = unselected_image.pixelColor(x, y);
+      const auto after = selected_image.pixelColor(x, y);
+      const auto delta = std::abs(before.red() - after.red()) + std::abs(before.green() - after.green()) +
+                         std::abs(before.blue() - after.blue());
+      if (delta > 12) {
+        ++changed_pixels;
+      }
+    }
+  }
+  CHECK(changed_pixels > 20);
+
+  QTextCursor cursor(editor->document());
+  cursor.movePosition(QTextCursor::End);
+  editor->setTextCursor(cursor);
+  editor->insertPlainText(QStringLiteral("!"));
+  CHECK(editor->property("patchy.previewPaintsText").toBool());
+  CHECK(editor->property("patchy.textPreviewLayerId").toULongLong() == preview_id);
+  CHECK(editor->property("patchy.textPreviewPending").toBool());
+
+  process_events_for(80);
+  CHECK(editor->property("patchy.previewPaintsText").toBool());
+  CHECK(editor->property("patchy.textPreviewLayerId").isValid());
+  CHECK(editor->property("patchy.textPreviewLayerId").toULongLong() == preview_id);
+  send_key(*editor, Qt::Key_Escape);
+  QApplication::processEvents();
+}
+
+// Clicking into text you are not going to change must not move it. Entry re-renders the layer
+// live, so the preview it puts on screen has to be the SAME pixels at the SAME place as the
+// committed layer it replaced, and committing again with no keystrokes has to reproduce them.
+// `boxed` picks between a point-text click and a text-box drag, whose entry paths differ.
+void check_text_edit_entry_leaves_pixels_alone(bool boxed) {
+  patchy::test::register_test_fonts(patchy::test::TestFontRole::UiDefault);
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->set_zoom(1.0);
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  canvas->set_primary_color(QColor(20, 20, 20));
+
+  const QPoint text_document_point(80, 90);
+  const auto widget_point = canvas->widget_position_for_document_point(text_document_point);
+  if (boxed) {
+    drag(*canvas, widget_point, canvas->widget_position_for_document_point(QPoint(300, 170)));
+  } else {
+    send_mouse(*canvas, QEvent::MouseButtonPress, widget_point, Qt::LeftButton, Qt::LeftButton);
+    send_mouse(*canvas, QEvent::MouseButtonRelease, widget_point, Qt::LeftButton, Qt::NoButton);
+  }
+  QApplication::processEvents();
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  if (editor == nullptr) {
+    return;
+  }
+  CHECK(editor->property("patchy.documentTextFlow").toString() ==
+        (boxed ? QStringLiteral("box") : QStringLiteral("point")));
+  editor->setPlainText(QStringLiteral("Handgloves"));
+  QApplication::processEvents();
+  process_events_for(120);
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  QApplication::processEvents();
+  process_events_for(120);
+
+  auto& document = patchy::ui::MainWindowTestAccess::document(window);
+  auto* committed = document.find_layer(document.active_layer_id().value_or(patchy::LayerId{}));
+  CHECK(committed != nullptr);
+  if (committed == nullptr) {
+    return;
+  }
+  const auto committed_bounds = committed->bounds();
+  const auto committed_pixels = committed->pixels();
+  const auto committed_id = committed->id();
+
+  // Re-enter on the glyphs.
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  const QPoint reenter_document_point(committed_bounds.x + committed_bounds.width / 2,
+                                      committed_bounds.y + committed_bounds.height / 2);
+  const auto reenter_widget_point = canvas->widget_position_for_document_point(reenter_document_point);
+  send_mouse(*canvas, QEvent::MouseButtonPress, reenter_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, reenter_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  process_events_for(150);
+
+  auto* reentered = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(reentered != nullptr);
+  bool preview_matches_committed = false;
+  patchy::Rect preview_bounds{};
+  if (reentered != nullptr) {
+    CHECK(reentered->property("patchy.editingLayerId").toULongLong() ==
+          static_cast<qulonglong>(committed_id));
+    if (auto* preview = preview_layer_for_editor(document, *reentered); preview != nullptr) {
+      preview_bounds = preview->bounds();
+      preview_matches_committed = preview_bounds.x == committed_bounds.x &&
+                                  preview_bounds.y == committed_bounds.y &&
+                                  patchy::ui::pixel_buffers_equal(preview->pixels(), committed_pixels);
+      if (!preview_matches_committed) {
+        std::printf("  %s entry: committed %dx%d at (%d,%d), entry preview %dx%d at (%d,%d)\n",
+                    boxed ? "box" : "point", committed_bounds.width, committed_bounds.height,
+                    committed_bounds.x, committed_bounds.y, preview_bounds.width, preview_bounds.height,
+                    preview_bounds.x, preview_bounds.y);
+      }
+    }
+  }
+
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  QApplication::processEvents();
+  process_events_for(120);
+
+  CHECK(preview_matches_committed);
+  auto* recommitted = document.find_layer(committed_id);
+  CHECK(recommitted != nullptr);
+  if (recommitted != nullptr) {
+    CHECK(recommitted->bounds().x == committed_bounds.x);
+    CHECK(recommitted->bounds().y == committed_bounds.y);
+    CHECK(patchy::ui::pixel_buffers_equal(recommitted->pixels(), committed_pixels));
+  }
+}
+
+void ui_text_edit_entry_leaves_the_pixels_alone() {
+  check_text_edit_entry_leaves_pixels_alone(false);
+  check_text_edit_entry_leaves_pixels_alone(true);
+}
+
+// Drag-selecting with the mouse, and Shift+Arrow selecting with the keyboard, must both produce
+// a highlight that covers the glyphs it claims to cover. `reenter` runs the checks on a re-opened
+// session (the layer's stored metadata rebuilds the editor) rather than the session that created
+// the text; the two used to take different highlight paths and disagree on size.
+void check_text_selection_matches_glyphs(bool reenter) {
+  patchy::test::register_test_fonts(patchy::test::TestFontRole::UiDefault);
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->set_zoom(1.0);
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  canvas->set_primary_color(QColor(20, 20, 20));
+
+  const QPoint text_document_point(60, 80);
+  const auto widget_point = canvas->widget_position_for_document_point(text_document_point);
+  send_mouse(*canvas, QEvent::MouseButtonPress, widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  if (editor == nullptr) {
+    return;
+  }
+  editor->setPlainText(QStringLiteral("Handgloves"));
+  QApplication::processEvents();
+  process_events_for(150);
+
+  if (reenter) {
+    require_action_by_text(window, QStringLiteral("Move"))->trigger();
+    QApplication::processEvents();
+    process_events_for(150);
+    auto& document = patchy::ui::MainWindowTestAccess::document(window);
+    auto* committed = document.find_layer(document.active_layer_id().value_or(patchy::LayerId{}));
+    CHECK(committed != nullptr);
+    if (committed == nullptr) {
+      return;
+    }
+    const auto bounds = committed->bounds();
+    require_action_by_text(window, QStringLiteral("Type"))->trigger();
+    const auto reenter_point = canvas->widget_position_for_document_point(
+        QPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+    send_mouse(*canvas, QEvent::MouseButtonPress, reenter_point, Qt::LeftButton, Qt::LeftButton);
+    send_mouse(*canvas, QEvent::MouseButtonRelease, reenter_point, Qt::LeftButton, Qt::NoButton);
+    QApplication::processEvents();
+    process_events_for(200);
+    editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+    CHECK(editor != nullptr);
+    if (editor == nullptr) {
+      return;
+    }
+  }
+
+  // Keyboard: select the first four characters and measure the highlight.
+  auto cursor = editor->textCursor();
+  cursor.setPosition(0);
+  editor->setTextCursor(cursor);
+  QApplication::processEvents();
+  for (int i = 0; i < 4; ++i) {
+    send_key(*editor, Qt::Key_Right, Qt::ShiftModifier);
+  }
+  QApplication::processEvents();
+  const auto keyboard_selection = editor->textCursor().selectedText();
+  QRect keyboard_rect;
+  for (const auto& value : editor->property("patchy.previewSelectionRects").toList()) {
+    keyboard_rect = keyboard_rect.united(value.toRect());
+  }
+  // The caret is one glyph tall, so it is the reference for how tall a highlight should be.
+  cursor = editor->textCursor();
+  cursor.setPosition(2);
+  editor->setTextCursor(cursor);
+  QApplication::processEvents();
+  const auto caret_rect = editor->property("patchy.previewCaretRect").toRect();
+
+  // Mouse: drag across the same span.
+  cursor.setPosition(0);
+  editor->setTextCursor(cursor);
+  QApplication::processEvents();
+  auto start_caret = editor->property("patchy.previewCaretRect").toRect();
+  if (start_caret.isEmpty()) {
+    start_caret = editor->cursorRect();
+  }
+  cursor.setPosition(4);
+  editor->setTextCursor(cursor);
+  QApplication::processEvents();
+  auto end_caret = editor->property("patchy.previewCaretRect").toRect();
+  if (end_caret.isEmpty()) {
+    end_caret = editor->cursorRect();
+  }
+  cursor.setPosition(0);
+  cursor.clearSelection();
+  editor->setTextCursor(cursor);
+  QApplication::processEvents();
+
+  const QPoint drag_from(start_caret.left(), (start_caret.top() + start_caret.bottom()) / 2);
+  const QPoint drag_to(end_caret.left(), (end_caret.top() + end_caret.bottom()) / 2);
+  send_mouse(*editor->viewport(), QEvent::MouseButtonPress, drag_from, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*editor->viewport(), QEvent::MouseMove, QPoint((drag_from.x() + drag_to.x()) / 2, drag_to.y()),
+             Qt::NoButton, Qt::LeftButton);
+  send_mouse(*editor->viewport(), QEvent::MouseMove, drag_to, Qt::NoButton, Qt::LeftButton);
+  send_mouse(*editor->viewport(), QEvent::MouseButtonRelease, drag_to, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  const auto mouse_selection = editor->textCursor().selectedText();
+
+  // Does the editor widget actually cover its own glyphs? Anything outside it is a press the
+  // canvas takes instead, which restarts or ends the session rather than selecting.
+  const QRect editor_widget_rect(editor->pos(), editor->size());
+  QRect glyph_widget_rect;
+  {
+    auto& doc = patchy::ui::MainWindowTestAccess::document(window);
+    if (auto* preview = preview_layer_for_editor(doc, *editor); preview != nullptr) {
+      const auto bounds = preview->bounds();
+      glyph_widget_rect =
+          QRect(canvas->widget_position_for_document_point(QPoint(bounds.x, bounds.y)),
+                canvas->widget_position_for_document_point(
+                    QPoint(bounds.x + bounds.width, bounds.y + bounds.height)));
+    }
+  }
+
+  if (canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) != nullptr) {
+    require_action_by_text(window, QStringLiteral("Move"))->trigger();
+    QApplication::processEvents();
+    process_events_for(150);
+  }
+
+  // The editor widget's rect IS its hit area. Anything outside it is a press the canvas takes
+  // instead, which restarts or ends the session rather than selecting, so the widget has to
+  // cover the glyphs it is editing.
+  CHECK(!glyph_widget_rect.isEmpty());
+  CHECK(editor_widget_rect.adjusted(-2, -2, 2, 2).contains(glyph_widget_rect));
+
+  CHECK(keyboard_selection == QStringLiteral("Hand"));
+  CHECK(!caret_rect.isEmpty());
+  CHECK(!keyboard_rect.isEmpty());
+  // A four-character highlight is as tall as the caret, give or take rounding.
+  CHECK(std::abs(keyboard_rect.height() - caret_rect.height()) <= 3);
+  CHECK(std::abs(keyboard_rect.top() - caret_rect.top()) <= 3);
+  // Dragging the mouse across the same span selects the same span.
+  CHECK(mouse_selection == QStringLiteral("Hand"));
+}
+
+void ui_text_mouse_and_keyboard_selection_match_glyphs() {
+  check_text_selection_matches_glyphs(false);
+  check_text_selection_matches_glyphs(true);
+}
+
+void ui_text_commit_is_zoom_independent() {
+  // The same text typed at the same place must commit the same pixels whatever the canvas zoom
+  // happened to be. The inline editor's font used to be set to an integer pixel size of
+  // round(size * zoom) and the committed runs derived by dividing that back out, so the zoom the
+  // user happened to be at leaked into the result.
+  patchy::test::register_test_fonts(patchy::test::TestFontRole::UiDefault);
+  struct Committed {
+    double zoom{1.0};
+    patchy::Rect bounds{};
+    patchy::PixelBuffer pixels;
+  };
+  std::vector<Committed> results;
+  for (const double zoom : {1.0, 0.5, 2.0}) {
+    patchy::ui::MainWindow window;
+    show_window(window);
+    auto* canvas = require_canvas(window);
+    canvas->set_zoom(zoom);
+    QApplication::processEvents();
+    require_action_by_text(window, QStringLiteral("Type"))->trigger();
+    canvas->set_primary_color(QColor(20, 20, 20));
+
+    const QPoint text_document_point(80, 90);
+    const auto widget_point = canvas->widget_position_for_document_point(text_document_point);
+    send_mouse(*canvas, QEvent::MouseButtonPress, widget_point, Qt::LeftButton, Qt::LeftButton);
+    send_mouse(*canvas, QEvent::MouseButtonRelease, widget_point, Qt::LeftButton, Qt::NoButton);
+    QApplication::processEvents();
+    auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+    CHECK(editor != nullptr);
+    if (editor == nullptr) {
+      return;
+    }
+    editor->setPlainText(QStringLiteral("Handgloves"));
+    QApplication::processEvents();
+    process_events_for(120);
+    require_action_by_text(window, QStringLiteral("Move"))->trigger();
+    QApplication::processEvents();
+    process_events_for(120);
+
+    auto& document = patchy::ui::MainWindowTestAccess::document(window);
+    auto* committed = document.find_layer(document.active_layer_id().value_or(patchy::LayerId{}));
+    CHECK(committed != nullptr);
+    if (committed == nullptr) {
+      return;
+    }
+    results.push_back(Committed{zoom, committed->bounds(), committed->pixels()});
+  }
+
+  CHECK(results.size() == 3);
+  for (std::size_t i = 1; i < results.size(); ++i) {
+    CHECK(results[i].bounds.x == results[0].bounds.x);
+    CHECK(results[i].bounds.y == results[0].bounds.y);
+    CHECK(results[i].bounds.width == results[0].bounds.width);
+    CHECK(results[i].bounds.height == results[0].bounds.height);
+    CHECK(patchy::ui::pixel_buffers_equal(results[i].pixels, results[0].pixels));
+  }
+}
+
+void ui_expensive_text_style_preview_never_blanks_while_typing() {
+  patchy::Document document(420, 240, patchy::PixelFormat::rgba8());
+  document.add_pixel_layer("Background", solid_pixels(420, 240, patchy::PixelFormat::rgba8(), QColor(Qt::white)));
+  auto pixels = solid_pixels(170, 68, patchy::PixelFormat::rgba8(), QColor(0, 0, 0, 0));
+  fill_pixel_rect(pixels, QRect(0, 0, 126, 44), QColor(32, 32, 32, 255));
+
+  patchy::Layer text_layer(document.allocate_layer_id(), "Text: Styled", std::move(pixels));
+  text_layer.set_bounds(patchy::Rect{90, 80, 170, 68});
+  text_layer.metadata()[patchy::kLayerMetadataText] = "Styled";
+  text_layer.metadata()[patchy::kLayerMetadataTextFont] = "Arial";
+  text_layer.metadata()[patchy::kLayerMetadataTextSize] = "36";
+  text_layer.metadata()[patchy::kLayerMetadataTextColor] = "#202020";
+  patchy::LayerOuterGlow glow;
+  glow.enabled = true;
+  glow.blend_mode = patchy::BlendMode::Normal;
+  glow.color = patchy::RgbColor{255, 0, 0};
+  glow.opacity = 0.8F;
+  glow.size = 64.0F;
+  text_layer.layer_style().outer_glows.push_back(glow);
+  document.add_layer(std::move(text_layer));
+
+  patchy::ui::MainWindow window;
+  window.add_document_session(std::move(document), QStringLiteral("Expensive Styled Text Preview"));
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->set_zoom(1.0);
+  QApplication::processEvents();
+
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  const auto hit_point = canvas->widget_position_for_document_point(QPoint(100, 92));
+  send_mouse(*canvas, QEvent::MouseButtonPress, hit_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, hit_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  CHECK(editor->property("patchy.expensiveTextStylePreview").toBool());
+  // The editor never paints glyphs of its own: they come from the committed layer until the
+  // first preview lands, and from the preview after that.
+  CHECK(editor->property("patchy.previewPaintsText").toBool());
+
+  // "The text is on screen" sampled at every point where it used to vanish. The layer is dark
+  // (32,32,32) on white, so dark pixels in the canvas mean the text is drawn.
+  const auto text_is_on_canvas = [&] {
+    const auto image = canvas->grab().toImage();
+    return count_pixels_close(image, image.rect(), QColor(32, 32, 32), 48) > 20;
+  };
+  CHECK(text_is_on_canvas());
+
+  QTextCursor cursor(editor->document());
+  cursor.movePosition(QTextCursor::End);
+  editor->setTextCursor(cursor);
+  editor->setCursorWidth(0);
+  editor->insertPlainText(QStringLiteral(" live"));
+  QApplication::processEvents();
+  // Mid-debounce: the expensive re-render is queued, and the previous glyphs keep drawing while
+  // it runs. This used to rip the preview layer out for the whole kExpensiveTextEditorPreviewDelayMs.
+  CHECK(editor->property("patchy.previewPaintsText").toBool());
+  CHECK(editor->property("patchy.textPreviewPending").toBool());
+  CHECK(text_is_on_canvas());
+
+  process_events_for(260);
+  CHECK(editor->property("patchy.previewPaintsText").toBool());
+  CHECK(editor->property("patchy.textPreviewLayerId").isValid());
+  CHECK(text_is_on_canvas());
+
+  editor->insertPlainText(QStringLiteral(" now"));
+  QApplication::processEvents();
+  CHECK(editor->property("patchy.previewPaintsText").toBool());
+  CHECK(editor->property("patchy.textPreviewLayerId").isValid());
+  CHECK(text_is_on_canvas());
+  process_events_for(260);
+  CHECK(editor->property("patchy.previewPaintsText").toBool());
+  CHECK(editor->property("patchy.textPreviewLayerId").isValid());
+
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+
+  const auto committed_image = canvas->grab().toImage();
+  bool saw_red_glow = false;
+  for (int document_y = 36; document_y < 182 && !saw_red_glow; document_y += 2) {
+    for (int document_x = 42; document_x < 382 && !saw_red_glow; document_x += 2) {
+      const auto widget_point = canvas->widget_position_for_document_point(QPoint(document_x, document_y));
+      if (!committed_image.rect().contains(widget_point)) {
+        continue;
+      }
+      const auto color = committed_image.pixelColor(widget_point);
+      saw_red_glow = color.red() > 245 && color.red() > color.green() + 3 && color.red() > color.blue() + 3 &&
+                     color.green() < 252 && color.blue() < 252;
+    }
+  }
+  CHECK(saw_red_glow);
+  save_widget_artifact("ui_expensive_text_style_preview", *canvas);
+}
+
+void ui_text_editor_paste_uses_current_format_for_rich_emoji_clipboard() {
+  patchy::Document document(420, 240, patchy::PixelFormat::rgba8());
+  document.add_pixel_layer("Background", solid_pixels(420, 240, patchy::PixelFormat::rgba8(), QColor(Qt::white)));
+
+  patchy::ui::MainWindow window;
+  window.add_document_session(std::move(document), QStringLiteral("Rich Emoji Clipboard"));
+  show_window(window);
+  auto* canvas = require_canvas(window);
+
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  canvas->set_primary_color(QColor(12, 34, 56));
+  const auto text_widget_point = canvas->widget_position_for_document_point(QPoint(80, 90));
+  send_mouse(*canvas, QEvent::MouseButtonPress, text_widget_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, text_widget_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  auto* text_size = window.findChild<QDoubleSpinBox*>(QStringLiteral("textSizeSpin"));
+  CHECK(editor != nullptr);
+  CHECK(text_size != nullptr);
+  // Directly-constructed Document: core default 300 ppi, not the startup doc's 72.
+  text_size->setValue(text_points_for_pixels(52, 300.0));
+  QApplication::processEvents();
+
+  editor->selectAll();
+  editor->insertPlainText(QStringLiteral("Hello"));
+  QTextCursor cursor = editor->textCursor();
+  cursor.movePosition(QTextCursor::End);
+  editor->setTextCursor(cursor);
+  editor->setFocus(Qt::OtherFocusReason);
+  QApplication::processEvents();
+
+  const auto pasted_text = QString::fromUtf8(QByteArray::fromHex("616e696e677320f09f9281f09f918cf09f8e8df09f988d"));
+  const auto paste_start = editor->toPlainText().size();
+  auto* mime_data = new QMimeData();
+  mime_data->setText(pasted_text);
+  mime_data->setHtml(QStringLiteral("<a href=\"https://example.invalid\" "
+                                    "style=\"font-size: 9px; color: #0000ee; text-decoration: underline;\">") +
+                     pasted_text.toHtmlEscaped() + QStringLiteral("</a>"));
+  QApplication::clipboard()->setMimeData(mime_data);
+
+  send_key(*editor, Qt::Key_V, Qt::ControlModifier);
+  QApplication::processEvents();
+  CHECK(editor->toPlainText() == QStringLiteral("Hello") + pasted_text);
+
+  const auto expected_text_size =
+      std::max(8, static_cast<int>(std::round(editor->property("patchy.documentTextSize").toInt() * canvas->zoom())));
+  const auto expected_color = editor->property("patchy.documentTextColor").value<QColor>();
+  bool checked_pasted_fragment = false;
+  for (auto block = editor->document()->begin(); block.isValid(); block = block.next()) {
+    for (auto fragment_it = block.begin(); !fragment_it.atEnd(); ++fragment_it) {
+      const auto fragment = fragment_it.fragment();
+      if (!fragment.isValid() || fragment.position() + fragment.length() <= paste_start) {
+        continue;
+      }
+      checked_pasted_fragment = true;
+      const auto format = fragment.charFormat();
+      CHECK(format.font().pixelSize() == expected_text_size);
+      CHECK(format.foreground().color() == expected_color);
+      CHECK(!format.fontUnderline());
+      CHECK(!format.isAnchor());
+    }
+  }
+  CHECK(checked_pasted_fragment);
+  send_key(*editor, Qt::Key_Escape);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  QApplication::clipboard()->clear();
+}
+
+void ui_text_tool_drag_creates_resizable_wrapped_text_box() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* layer_list = window.findChild<QListWidget*>(QStringLiteral("layerList"));
+  CHECK(layer_list != nullptr);
+
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  const auto layer_count_before_cancel_drag = layer_list->count();
+  const auto cancel_start = canvas->widget_position_for_document_point(QPoint(40, 42));
+  const auto cancel_end = canvas->widget_position_for_document_point(QPoint(130, 92));
+  send_mouse(*canvas, QEvent::MouseButtonPress, cancel_start, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseMove, cancel_end, Qt::NoButton, Qt::LeftButton);
+  send_key(*canvas, Qt::Key_Escape);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, cancel_end, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before_cancel_drag);
+
+  const QPoint box_top_left(92, 96);
+  const QPoint box_bottom_right(232, 158);
+  const auto start = canvas->widget_position_for_document_point(box_top_left);
+  const auto end = canvas->widget_position_for_document_point(box_bottom_right);
+  drag(*canvas, start, end);
+  QApplication::processEvents();
+
+  auto* editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  // The box drag also creates its layer row immediately, like a point-text click.
+  CHECK(layer_list->count() == layer_count_before_cancel_drag + 1);
+  CHECK(editor->property("patchy.documentTextFlow").toString() == QStringLiteral("box"));
+  CHECK(editor->property("patchy.documentTextWidth").toInt() >= 130);
+  CHECK(editor->property("patchy.documentTextHeight").toInt() >= 50);
+  CHECK(editor->lineWrapMode() == QTextEdit::WidgetWidth);
+  CHECK(editor->document()->defaultTextOption().wrapMode() == QTextOption::WordWrap);
+  CHECK(canvas->findChild<QWidget*>(QStringLiteral("textBoxResizeHandleBottomRight")) != nullptr);
+
+  editor->setPlainText(QStringLiteral("Type"));
+  editor->moveCursor(QTextCursor::End);
+  send_key(*editor, Qt::Key_Return);
+  send_key(*editor, Qt::Key_Return);
+  QApplication::processEvents();
+  const auto blank_caret_height = editor->cursorRect().height();
+  const auto expected_blank_text_size =
+      std::max(8, static_cast<int>(std::round(editor->property("patchy.documentTextSize").toInt() * canvas->zoom())));
+  const auto blank_format = editor->currentCharFormat();
+  CHECK(blank_format.font().pixelSize() == expected_blank_text_size);
+  CHECK(blank_caret_height >= QFontMetrics(blank_format.font()).height() - 4);
+  editor->insertPlainText(QStringLiteral("hello"));
+  QApplication::processEvents();
+  const auto paragraph_image = editor->viewport()->grab().toImage();
+  const auto line_spacing = editor->fontMetrics().lineSpacing();
+  const QRect lower_paragraph_rect(0, std::max(0, line_spacing * 2 - 6), paragraph_image.width(),
+                                   std::min(paragraph_image.height(), line_spacing + 18));
+  CHECK(count_pixels_close(paragraph_image, lower_paragraph_rect, QColor(Qt::black), 80) > 8);
+
+  const auto editor_width_before_zoom = editor->width();
+  canvas->set_zoom(canvas->zoom() * 1.5);
+  QApplication::processEvents();
+  CHECK(editor->pos() == canvas->widget_position_for_document_point(box_top_left));
+  CHECK(editor->width() > editor_width_before_zoom);
+
+  auto* center = window.findChild<QPushButton*>(QStringLiteral("textAlignCenterButton"));
+  CHECK(center != nullptr);
+  center->click();
+  QApplication::processEvents();
+  CHECK((editor->alignment() & Qt::AlignHCenter) != 0);
+
+  editor->setPlainText(QStringLiteral("Wrapped paragraph text should occupy multiple visual lines inside the fixed box."));
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == editor);
+  CHECK(editor->document()->size().height() > static_cast<qreal>(editor->fontMetrics().lineSpacing()) * 1.5);
+  CHECK(editor->verticalScrollBar()->value() == 0);
+  editor->moveCursor(QTextCursor::End);
+  editor->insertPlainText(QStringLiteral("\nMore clipped text should not scroll the edit view."));
+  QApplication::processEvents();
+  CHECK(editor->verticalScrollBar()->value() == 0);
+
+  save_widget_artifact("ui_text_box_editor", *canvas);
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+  CHECK(layer_list->count() == layer_count_before_cancel_drag + 1);
+
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  const auto reedit_point = canvas->widget_position_for_document_point(box_top_left + QPoint(8, 8));
+  send_mouse(*canvas, QEvent::MouseButtonPress, reedit_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseButtonRelease, reedit_point, Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+
+  editor = canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor"));
+  CHECK(editor != nullptr);
+  CHECK(editor->property("patchy.documentTextFlow").toString() == QStringLiteral("box"));
+  CHECK(editor->lineWrapMode() == QTextEdit::WidgetWidth);
+  auto* bottom_right = canvas->findChild<QWidget*>(QStringLiteral("textBoxResizeHandleBottomRight"));
+  CHECK(bottom_right != nullptr);
+  const auto width_before = editor->property("patchy.documentTextWidth").toInt();
+  const auto handle_center = bottom_right->geometry().center();
+  editor->setFocus(Qt::OtherFocusReason);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == editor);
+  drag(*canvas, handle_center, handle_center + QPoint(44, 24));
+  QApplication::processEvents();
+  CHECK(editor->property("patchy.documentTextWidth").toInt() > width_before);
+  CHECK(canvas->findChild<QWidget*>(QStringLiteral("textBoxResizeHandleBottomRight")) != nullptr);
+
+  send_key(*editor, Qt::Key_Escape);
+  QApplication::processEvents();
+  CHECK(canvas->findChild<QTextEdit*>(QStringLiteral("inlineTextEditor")) == nullptr);
+}
+
+void ui_text_size_popup_slider_caps_at_200pt() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* text_size = window.findChild<QDoubleSpinBox*>(QStringLiteral("textSizeSpin"));
+  CHECK(text_size != nullptr);
+  CHECK(text_size->maximum() == 10000.0);
+
+  const auto open_popup = [&window]() -> QSlider* {
+    auto* action = window.findChild<QAction*>(QStringLiteral("textSizePopupAction"));
+    CHECK(action != nullptr);
+    action->trigger();
+    QApplication::processEvents();
+    auto* popup = window.findChild<QFrame*>(QStringLiteral("textSizePopup"));
+    auto* slider = window.findChild<QSlider*>(QStringLiteral("textSizePopupSlider"));
+    CHECK(popup != nullptr && popup->isVisible());
+    CHECK(slider != nullptr);
+    return slider;
+  };
+  const auto close_popup = [&window] {
+    auto* popup = window.findChild<QFrame*>(QStringLiteral("textSizePopup"));
+    CHECK(popup != nullptr);
+    popup->close();
+    QApplication::processEvents();
+  };
+
+  // The spin box accepts up to 10000 pt typed, but the slider caps at 200 pt
+  // (decimals=3, so slider units are thousandths of a point).
+  const double value_before = text_size->value();
+  auto* slider = open_popup();
+  CHECK(slider->maximum() == 200000);
+  CHECK(text_size->value() == value_before);
+  slider->setValue(150000);
+  CHECK(text_size->value() == 150.0);
+  close_popup();
+
+  // A typed value above the cap extends the slider to reach it instead of
+  // clamping the value down when the popup opens.
+  text_size->setValue(500.0);
+  slider = open_popup();
+  CHECK(slider->maximum() == 500000);
+  CHECK(slider->value() == 500000);
+  CHECK(text_size->value() == 500.0);
+  close_popup();
+
+  text_size->setValue(48.0);
+}
+
+// User-added fonts (drag-and-drop feature): shared helper behavior on the
+// desktop store. QStandardPaths test mode redirects AppDataLocation so the
+// real user-fonts store is never touched.
+void ui_user_fonts_add_persist_and_clear() {
+  struct StandardPathsTestMode {
+    StandardPathsTestMode() { QStandardPaths::setTestModeEnabled(true); }
+    ~StandardPathsTestMode() { QStandardPaths::setTestModeEnabled(false); }
+  } standard_paths_test_mode;
+  namespace user_fonts = patchy::ui::user_fonts;
+
+  const auto store_dir = user_fonts::user_fonts_directory();
+  CHECK(!store_dir.isEmpty());
+  user_fonts::clear_user_font_store();
+  const QStringList font_filters = {QStringLiteral("*.ttf"), QStringLiteral("*.otf"),
+                                    QStringLiteral("*.ttc")};
+  CHECK(QDir(store_dir).entryList(font_filters, QDir::Files).isEmpty());
+
+  const auto regular_font =
+      QStringLiteral(PATCHY_SOURCE_DIR "/third_party/fonts/noto_naskh_arabic/NotoNaskhArabic-Regular.ttf");
+  const auto bold_font =
+      QStringLiteral(PATCHY_SOURCE_DIR "/third_party/fonts/noto_naskh_arabic/NotoNaskhArabic-Bold.ttf");
+  CHECK(QFileInfo::exists(regular_font));
+  CHECK(QFileInfo::exists(bold_font));
+
+  // A combo created BEFORE the registration must pick the new family up
+  // (QFontComboBox repopulates on fontDatabaseChanged).
+  patchy::ui::FontPickerCombo combo;
+  const auto model_contains = [&combo](const QString& family) {
+    for (int row = 0; row < combo.count(); ++row) {
+      if (combo.itemText(row).compare(family, Qt::CaseInsensitive) == 0) {
+        return true;
+      }
+    }
+    return false;
+  };
+  // No absence precondition: on Linux the offscreen platform sees fontconfig
+  // fonts and Noto faces are commonly installed system-wide, so the family may
+  // already exist there (it does not on the Windows/macOS offscreen runs,
+  // where the later model_contains check proves the combo refresh).
+  const auto family = QStringLiteral("Noto Naskh Arabic");
+
+  QTemporaryDir temp;
+  CHECK(temp.isValid());
+  const auto dropped_font = temp.filePath(QStringLiteral("PatchyUserFontFixture.ttf"));
+  CHECK(QFile::copy(regular_font, dropped_font));
+
+  // Loose font file: registers, persists into the store, refreshes the combo.
+  const auto added = user_fonts::add_user_fonts({dropped_font});
+  CHECK(added.added_families.contains(family));
+  CHECK(added.invalid_names.isEmpty());
+  CHECK(added.zips_without_fonts.isEmpty());
+  CHECK(added.duplicate_count == 0);
+  CHECK(QFileInfo::exists(store_dir + QStringLiteral("/PatchyUserFontFixture.ttf")));
+  QApplication::processEvents();
+  // The pre-existing combo picked the family up without a manual refresh
+  // (QFontComboBox repopulates on fontDatabaseChanged).
+  CHECK(model_contains(family));
+
+  // The identical bytes again: duplicate, no second store entry.
+  const auto duplicate = user_fonts::add_user_fonts({dropped_font});
+  CHECK(duplicate.added_families.isEmpty());
+  CHECK(duplicate.duplicate_count == 1);
+  CHECK(QDir(store_dir).entryList(font_filters, QDir::Files).size() == 1);
+
+  // A zip of fonts: the Bold face nested in a folder registers; junk entries
+  // are ignored.
+  QFile bold_file(bold_font);
+  CHECK(bold_file.open(QIODevice::ReadOnly));
+  const auto bold_bytes = bold_file.readAll();
+  const QByteArray junk_bytes(64, 'x');
+  mz_zip_archive zip{};
+  CHECK(mz_zip_writer_init_heap(&zip, 0, 0) == MZ_TRUE);
+  CHECK(mz_zip_writer_add_mem(&zip, "fonts/NotoNaskhArabic-Bold.ttf", bold_bytes.constData(),
+                              static_cast<std::size_t>(bold_bytes.size()), MZ_DEFAULT_LEVEL) == MZ_TRUE);
+  CHECK(mz_zip_writer_add_mem(&zip, "__MACOSX/._shadow.ttf", junk_bytes.constData(),
+                              static_cast<std::size_t>(junk_bytes.size()), MZ_DEFAULT_LEVEL) == MZ_TRUE);
+  CHECK(mz_zip_writer_add_mem(&zip, "readme.txt", junk_bytes.constData(),
+                              static_cast<std::size_t>(junk_bytes.size()), MZ_DEFAULT_LEVEL) == MZ_TRUE);
+  void* zip_buffer = nullptr;
+  std::size_t zip_size = 0;
+  CHECK(mz_zip_writer_finalize_heap_archive(&zip, &zip_buffer, &zip_size) == MZ_TRUE);
+  const auto zip_path = temp.filePath(QStringLiteral("fonts.zip"));
+  {
+    QFile zip_file(zip_path);
+    CHECK(zip_file.open(QIODevice::WriteOnly));
+    CHECK(zip_file.write(static_cast<const char*>(zip_buffer), static_cast<qint64>(zip_size)) ==
+          static_cast<qint64>(zip_size));
+  }
+  mz_free(zip_buffer);
+  mz_zip_writer_end(&zip);
+  const auto zip_added = user_fonts::add_user_fonts({zip_path});
+  CHECK(zip_added.added_families.contains(family));
+  CHECK(zip_added.invalid_names.isEmpty());
+  CHECK(zip_added.duplicate_count == 0);
+  CHECK(QFileInfo::exists(store_dir + QStringLiteral("/NotoNaskhArabic-Bold.ttf")));
+
+  // Garbage that only looks like a font: reported invalid, never persisted.
+  const auto garbage_path = temp.filePath(QStringLiteral("NotAFont.ttf"));
+  {
+    QFile garbage_file(garbage_path);
+    CHECK(garbage_file.open(QIODevice::WriteOnly));
+    CHECK(garbage_file.write(QByteArray(256, 'g')) == 256);
+  }
+  const auto invalid = user_fonts::add_user_fonts({garbage_path});
+  CHECK(invalid.added_families.isEmpty());
+  CHECK(invalid.invalid_names.contains(QStringLiteral("NotAFont.ttf")));
+  CHECK(!QFileInfo::exists(store_dir + QStringLiteral("/NotAFont.ttf")));
+
+  // A zip with no fonts inside reports that instead of claiming invalidity.
+  mz_zip_archive empty_zip{};
+  CHECK(mz_zip_writer_init_heap(&empty_zip, 0, 0) == MZ_TRUE);
+  CHECK(mz_zip_writer_add_mem(&empty_zip, "readme.txt", junk_bytes.constData(),
+                              static_cast<std::size_t>(junk_bytes.size()), MZ_DEFAULT_LEVEL) == MZ_TRUE);
+  void* empty_zip_buffer = nullptr;
+  std::size_t empty_zip_size = 0;
+  CHECK(mz_zip_writer_finalize_heap_archive(&empty_zip, &empty_zip_buffer, &empty_zip_size) == MZ_TRUE);
+  const auto fontless_zip_path = temp.filePath(QStringLiteral("no-fonts.zip"));
+  {
+    QFile fontless_file(fontless_zip_path);
+    CHECK(fontless_file.open(QIODevice::WriteOnly));
+    CHECK(fontless_file.write(static_cast<const char*>(empty_zip_buffer),
+                              static_cast<qint64>(empty_zip_size)) == static_cast<qint64>(empty_zip_size));
+  }
+  mz_free(empty_zip_buffer);
+  mz_zip_writer_end(&empty_zip);
+  const auto fontless = user_fonts::add_user_fonts({fontless_zip_path});
+  CHECK(fontless.added_families.isEmpty());
+  CHECK(fontless.zips_without_fonts.contains(QStringLiteral("no-fonts.zip")));
+
+  // The startup restore is idempotent against fonts already registered this
+  // session (content-hash dedupe), so no duplicate store entries appear.
+  user_fonts::restore_user_fonts_at_startup();
+  CHECK(QDir(store_dir).entryList(font_filters, QDir::Files).size() == 2);
+
+  // Clearing empties the store; already-registered fonts stay usable
+  // (application fonts are never removed at runtime).
+  user_fonts::clear_user_font_store();
+  CHECK(QDir(store_dir).entryList(font_filters, QDir::Files).isEmpty());
+  CHECK(model_contains(family));
+}
+
+// Every bundled web font must register in the FreeType font database (the
+// offscreen platform uses the same Qt-bundled FreeType the wasm build uses)
+// and produce a working engine for each of its families. Guards the wasm
+// build's whole font inventory from the desktop suite. The registration runs
+// in a child process (--bundled-web-fonts-probe, handled in tests/ui/main.cpp
+// by run_bundled_web_fonts_probe): application fonts are never removed at
+// runtime, so registering the ~40-file inventory here would permanently change
+// Qt's missing-family fallback for every later test, and the PSD text re-edit
+// tests pin metrics against that fallback. The child exits before the suite's
+// QSettings bootstrap, so it never touches the store shared with this process.
+void ui_bundled_web_fonts_register_and_create_engines() {
+  QProcess probe;
+  probe.setProgram(QCoreApplication::applicationFilePath());
+  probe.setArguments({QStringLiteral("--bundled-web-fonts-probe")});
+  probe.start();
+  CHECK(probe.waitForStarted(30000));
+  CHECK(probe.waitForFinished(180000));
+  auto probe_stdout = QString::fromUtf8(probe.readAllStandardOutput());
+  probe_stdout.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+  if (probe.exitStatus() != QProcess::NormalExit || probe.exitCode() != 0) {
+    const auto probe_stderr = QString::fromUtf8(probe.readAllStandardError());
+    std::printf("  bundled-web-fonts probe stderr:\n%s\n", probe_stderr.toUtf8().constData());
+  }
+  CHECK(probe.exitStatus() == QProcess::NormalExit);
+  CHECK(probe.exitCode() == 0);
+  const auto listed = [&probe_stdout](const char* family) {
+    return probe_stdout.contains(QStringLiteral("family: ") + QLatin1String(family) +
+                                 QLatin1Char('\n'));
+  };
+  CHECK(listed("Liberation Sans"));
+  CHECK(listed("Carlito"));
+  CHECK(listed("Noto Sans"));
+  CHECK(listed("Noto Serif"));
+  CHECK(listed("Noto Sans JP"));
+}
+
+// Dropping a font file on the main window registers it instead of trying to
+// open it as a document (the desktop drop routing).
+void ui_font_drop_registers_instead_of_opening() {
+  struct StandardPathsTestMode {
+    StandardPathsTestMode() { QStandardPaths::setTestModeEnabled(true); }
+    ~StandardPathsTestMode() { QStandardPaths::setTestModeEnabled(false); }
+  } standard_paths_test_mode;
+  namespace user_fonts = patchy::ui::user_fonts;
+  user_fonts::clear_user_font_store();
+
+  patchy::ui::MainWindow window;
+  show_window(window);
+
+  // Pacifico is not used by ui_user_fonts_add_persist_and_clear, so its
+  // content hash is fresh for this test regardless of suite order.
+  const auto source_font =
+      QStringLiteral(PATCHY_SOURCE_DIR "/third_party/fonts-web/pacifico/Pacifico-Regular.ttf");
+  CHECK(QFileInfo::exists(source_font));
+  QTemporaryDir temp;
+  CHECK(temp.isValid());
+  const auto dropped_font = temp.filePath(QStringLiteral("PatchyDropFixture.ttf"));
+  CHECK(QFile::copy(source_font, dropped_font));
+
+  QMimeData mime;
+  mime.setUrls({QUrl::fromLocalFile(dropped_font)});
+  QDragEnterEvent enter(QPoint(50, 50), Qt::CopyAction, &mime, Qt::NoButton, Qt::NoModifier);
+  QApplication::sendEvent(&window, &enter);
+  CHECK(enter.isAccepted());
+  QDropEvent drop(QPointF(50, 50), Qt::CopyAction, &mime, Qt::NoButton, Qt::NoModifier);
+  QApplication::sendEvent(&window, &drop);
+  QApplication::processEvents();
+
+  CHECK(window.statusBar()->currentMessage().startsWith(QStringLiteral("Added fonts:")));
+  CHECK(window.statusBar()->currentMessage().contains(QStringLiteral("Pacifico")));
+  const auto store_dir = user_fonts::user_fonts_directory();
+  CHECK(QFileInfo::exists(store_dir + QStringLiteral("/PatchyDropFixture.ttf")));
+  user_fonts::clear_user_font_store();
+}
+
+}  // namespace
+
+std::vector<patchy::test::TestCase> text_editor_font_picker_tests() {
+  return {
+      {"ui_text_tool_creates_visible_text_layer", ui_text_tool_creates_visible_text_layer},
+      {"ui_text_editor_ctrl_b_and_ctrl_i_toggle_formatting",
+       ui_text_editor_ctrl_b_and_ctrl_i_toggle_formatting},
+      {"ui_text_tool_outside_click_commits_without_new_text_editor",
+       ui_text_tool_outside_click_commits_without_new_text_editor},
+      {"ui_text_click_off_commit_ignores_reentrant_release_during_wait",
+       ui_text_click_off_commit_ignores_reentrant_release_during_wait},
+      {"ui_delete_key_action_removes_text_layer_object", ui_delete_key_action_removes_text_layer_object},
+      {"ui_text_tool_click_creates_provisional_layer", ui_text_tool_click_creates_provisional_layer},
+      {"ui_text_options_bar_accept_cancel_buttons", ui_text_options_bar_accept_cancel_buttons},
+      {"ui_text_font_picker_popup_filters_and_commits", ui_text_font_picker_popup_filters_and_commits},
+      {"ui_text_font_picker_rows_render_in_their_own_font", ui_text_font_picker_rows_render_in_their_own_font},
+      {"ui_text_font_picker_preview_shows_supported_scripts", ui_text_font_picker_preview_shows_supported_scripts},
+      {"ui_text_font_picker_popup_resizes_and_persists", ui_text_font_picker_popup_resizes_and_persists},
+      {"ui_text_font_picker_open_while_editing_keeps_text_session",
+       ui_text_font_picker_open_while_editing_keeps_text_session},
+      {"ui_text_edit_hides_editor_glyphs_and_shows_selection_over_style_preview",
+       ui_text_edit_hides_editor_glyphs_and_shows_selection_over_style_preview},
+      {"ui_text_edit_entry_leaves_the_pixels_alone", ui_text_edit_entry_leaves_the_pixels_alone},
+      {"ui_text_commit_is_zoom_independent", ui_text_commit_is_zoom_independent},
+      {"ui_text_mouse_and_keyboard_selection_match_glyphs",
+       ui_text_mouse_and_keyboard_selection_match_glyphs},
+      {"ui_expensive_text_style_preview_never_blanks_while_typing",
+       ui_expensive_text_style_preview_never_blanks_while_typing},
+      {"ui_text_editor_paste_uses_current_format_for_rich_emoji_clipboard",
+       ui_text_editor_paste_uses_current_format_for_rich_emoji_clipboard},
+      {"ui_text_tool_drag_creates_resizable_wrapped_text_box",
+       ui_text_tool_drag_creates_resizable_wrapped_text_box},
+      {"ui_text_size_popup_slider_caps_at_200pt", ui_text_size_popup_slider_caps_at_200pt},
+      {"ui_user_fonts_add_persist_and_clear", ui_user_fonts_add_persist_and_clear},
+      {"ui_bundled_web_fonts_register_and_create_engines",
+       ui_bundled_web_fonts_register_and_create_engines},
+      {"ui_font_drop_registers_instead_of_opening", ui_font_drop_registers_instead_of_opening},
+  };
+}

@@ -1,0 +1,228 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 26,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "dev",
+      "displayName": "Developer build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps/Qt/6.8.3/msvc2022_64",
+        "PATCHY_BUILD_APP": "ON",
+        "PATCHY_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug build",
+      "inherits": "dev"
+    },
+    {
+      "name": "qt-local",
+      "displayName": "Developer build with local Qt install",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/build/app",
+      "cacheVariables": {
+        "PATCHY_BUILD_APP": "ON",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps/Qt/6.8.3/msvc2022_64"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps/Qt/6.8.3/msvc2022_64",
+        "PATCHY_BUILD_APP": "ON",
+        "PATCHY_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "mac-release",
+      "displayName": "macOS release build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/mac-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps/Qt/6.8.3/macos",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0",
+        "PATCHY_BUILD_APP": "ON",
+        "PATCHY_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "mac-dev",
+      "displayName": "macOS developer build",
+      "inherits": "mac-release",
+      "binaryDir": "${sourceDir}/build/mac-dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux release build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps/Qt/6.8.3/gcc_64",
+        "PATCHY_BUILD_APP": "ON",
+        "PATCHY_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "linux-dev",
+      "displayName": "Linux developer build",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-asan",
+      "displayName": "Linux AddressSanitizer build (order-dependent heap bug hunts)",
+      "inherits": "linux-release",
+      "binaryDir": "${sourceDir}/build/linux-asan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_C_FLAGS": "-fsanitize=address -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address",
+        "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=address"
+      }
+    },
+    {
+      "name": "wasm-core",
+      "displayName": "WebAssembly engine + core tests (Emscripten, no Qt; see docs/wasm.md)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm-core",
+      "toolchainFile": "${sourceDir}/.deps/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PATCHY_BUILD_APP": "OFF",
+        "PATCHY_BUILD_TESTS": "ON",
+        "CMAKE_CROSSCOMPILING_EMULATOR": "${sourceDir}/.deps/emsdk/node/22.16.0_64bit/bin/node.exe",
+        "CMAKE_C_FLAGS": "-pthread -fwasm-exceptions",
+        "CMAKE_CXX_FLAGS": "-pthread -fwasm-exceptions",
+        "CMAKE_EXE_LINKER_FLAGS": "-pthread -fwasm-exceptions -Wno-pthreads-mem-growth -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=256MB -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=1MB -sPTHREAD_POOL_SIZE=32 -sPTHREAD_POOL_SIZE_STRICT=2 -sNODERAWFS=1 -sENVIRONMENT=node,worker -sEXIT_RUNTIME=1 \"--pre-js=${sourceDir}/scripts/wasm/node-env-pre.js\""
+      }
+    },
+    {
+      "name": "wasm-release",
+      "displayName": "WebAssembly app build (Qt for wasm, multithreaded; see docs/wasm.md)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm-release",
+      "toolchainFile": "${sourceDir}/.deps/Qt/6.10.3/wasm_multithread/lib/cmake/Qt6/qt.toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PATCHY_BUILD_APP": "ON",
+        "PATCHY_BUILD_TESTS": "OFF",
+        "QT_HOST_PATH": "${sourceDir}/.deps/Qt/6.10.3/msvc2022_64",
+        "QT_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/.deps/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+        "CMAKE_C_FLAGS": "-fexceptions -pthread -msimd128",
+        "CMAKE_CXX_FLAGS": "-fexceptions -pthread -msimd128"
+      }
+    },
+    {
+      "name": "wasm-release-st",
+      "displayName": "WebAssembly app build (Qt for wasm, single-threaded; served to Safari, see docs/wasm-memory.md)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm-release-st",
+      "toolchainFile": "${sourceDir}/.deps/Qt/6.10.3/wasm_singlethread/lib/cmake/Qt6/qt.toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PATCHY_BUILD_APP": "ON",
+        "PATCHY_BUILD_TESTS": "OFF",
+        "PATCHY_WASM_SINGLETHREAD": "ON",
+        "QT_HOST_PATH": "${sourceDir}/.deps/Qt/6.10.3/msvc2022_64",
+        "QT_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/.deps/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+        "CMAKE_C_FLAGS": "-fexceptions -msimd128",
+        "CMAKE_CXX_FLAGS": "-fexceptions -msimd128"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "qt-local",
+      "configurePreset": "qt-local"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "mac-release",
+      "configurePreset": "mac-release"
+    },
+    {
+      "name": "mac-dev",
+      "configurePreset": "mac-dev"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release"
+    },
+    {
+      "name": "linux-dev",
+      "configurePreset": "linux-dev"
+    },
+    {
+      "name": "linux-asan",
+      "configurePreset": "linux-asan"
+    },
+    {
+      "name": "wasm-core",
+      "configurePreset": "wasm-core"
+    },
+    {
+      "name": "wasm-release",
+      "configurePreset": "wasm-release"
+    },
+    {
+      "name": "wasm-release-st",
+      "configurePreset": "wasm-release-st"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "qt-local",
+      "configurePreset": "qt-local",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

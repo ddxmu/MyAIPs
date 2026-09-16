@@ -1,0 +1,347 @@
+#pragma once
+
+#include "core/layer.hpp"
+
+#include <QJSValue>
+#include <QObject>
+#include <QString>
+
+#include <cstdint>
+
+namespace patchy {
+class Document;
+}
+
+namespace patchy::ui {
+
+class ScriptEngineHost;
+
+// The QObject wrappers the scripting engine exposes to JS (docs/scripting.md).
+// Lifetime rules: the singleton objects (app/io/ui) are parented to the host
+// (C++-owned); document/layer/selection wrappers are created per access with no
+// parent, so the JS garbage collector owns them. Wrappers hold session ids and
+// LayerIds only and re-resolve on every call, throwing a JS error when the
+// target is gone: the layers vector reallocates and sessions close, so a stored
+// pointer is the historical use-after-free pattern. Reads resolve through const
+// documents (mutable layer accessors bump revisions on access).
+
+// Stable script-facing blend mode ids ("normal", "multiply", ...). Append-only,
+// aligned with the BlendMode enum; these are a persistence-adjacent contract
+// (scripts in the wild will hard-code them), so never rename one.
+[[nodiscard]] QString script_blend_mode_id(BlendMode mode);
+[[nodiscard]] bool script_blend_mode_from_id(const QString& id, BlendMode* mode);
+
+class ScriptLayerObject : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(QString id READ id)
+  Q_PROPERTY(QString name READ name WRITE set_name)
+  Q_PROPERTY(double opacity READ opacity WRITE set_opacity)
+  Q_PROPERTY(bool visible READ visible WRITE set_visible)
+  Q_PROPERTY(QString blendMode READ blend_mode WRITE set_blend_mode)
+  Q_PROPERTY(bool locked READ locked WRITE set_locked)
+  Q_PROPERTY(double x READ x WRITE set_x)
+  Q_PROPERTY(double y READ y WRITE set_y)
+  Q_PROPERTY(QJSValue bounds READ bounds)
+  Q_PROPERTY(bool isGroup READ is_group)
+  Q_PROPERTY(bool isText READ is_text)
+  Q_PROPERTY(bool isShape READ is_shape)
+  Q_PROPERTY(QJSValue children READ children)
+  Q_PROPERTY(QString text READ text WRITE set_text)
+
+public:
+  ScriptLayerObject(ScriptEngineHost& host, std::int64_t session_id, LayerId layer_id);
+
+  [[nodiscard]] QString name() const;
+  [[nodiscard]] QString id() const;
+  Q_INVOKABLE void drawStrokes(const QJSValue& strokes);
+  void set_name(const QString& name);
+  [[nodiscard]] double opacity() const;  // 0..100
+  void set_opacity(double opacity);
+  [[nodiscard]] bool visible() const;
+  void set_visible(bool visible);
+  [[nodiscard]] QString blend_mode() const;
+  void set_blend_mode(const QString& mode);
+  [[nodiscard]] bool locked() const;
+  void set_locked(bool locked);
+  [[nodiscard]] int x() const;
+  void set_x(double x);
+  [[nodiscard]] int y() const;
+  void set_y(double y);
+  [[nodiscard]] QJSValue bounds() const;
+  [[nodiscard]] bool is_group() const;
+  [[nodiscard]] bool is_text() const;
+  [[nodiscard]] bool is_shape() const;
+  Q_INVOKABLE QJSValue getShape() const;
+  Q_INVOKABLE void updateShape(const QJSValue& changes);
+  Q_INVOKABLE void transformShape(const QJSValue& matrix, const QJSValue& options = QJSValue());
+  Q_INVOKABLE QJSValue getVectorMask() const;
+  Q_INVOKABLE void setVectorMask(const QJSValue& options);
+  Q_INVOKABLE void removeVectorMask();
+  Q_INVOKABLE void transformVectorMask(const QJSValue& matrix);
+  Q_INVOKABLE void rasterizeVectorMask();
+  Q_INVOKABLE void fillPath(const QJSValue& path, const QJSValue& options = QJSValue());
+  Q_INVOKABLE void strokePath(const QJSValue& path, const QJSValue& options = QJSValue());
+  [[nodiscard]] QJSValue children() const;
+  [[nodiscard]] QString text() const;
+  void set_text(const QString& text);
+
+  Q_INVOKABLE void moveTo(double x, double y);
+  Q_INVOKABLE QJSValue duplicate(const QJSValue& target = QJSValue());
+  Q_INVOKABLE void remove();
+  // Ungroup this group layer; returns the released layers top to bottom.
+  Q_INVOKABLE QJSValue ungroup();
+  Q_INVOKABLE void fill(const QString& color);
+  Q_INVOKABLE void fillRect(int x, int y, int width, int height, const QString& color);
+  Q_INVOKABLE void applyFilter(const QString& filterId, const QJSValue& params = QJSValue());
+  Q_INVOKABLE QJSValue getPixels();
+  Q_INVOKABLE void setPixels(const QJSValue& imageData);
+  // Trace Image to Shapes: returns the new group layer (inserted above this
+  // layer, which is hidden), or null when nothing traced.
+  Q_INVOKABLE QJSValue traceToShapes(const QJSValue& options = QJSValue());
+  // Simplify Path on this shape layer's path (or its vector mask); options
+  // {tolerance, cornerAngle, snapCurvesToLines}; returns {anchorsBefore,
+  // anchorsAfter}. Unknown option names throw.
+  Q_INVOKABLE QJSValue simplifyPath(const QJSValue& options = QJSValue());
+
+  [[nodiscard]] LayerId layer_id() const noexcept { return layer_id_; }
+  [[nodiscard]] std::int64_t session_id() const noexcept { return session_id_; }
+
+private:
+  // Const resolution for reads; nullptr (after a thrown JS error) when gone.
+  [[nodiscard]] const Layer* read_layer() const;
+  // Mutation resolution: undo snapshot bookkeeping + non-const layer, or null.
+  [[nodiscard]] Layer* write_layer();
+
+  ScriptEngineHost& host_;
+  std::int64_t session_id_{0};
+  LayerId layer_id_{0};
+};
+
+class ScriptSelectionObject : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(bool exists READ exists)
+  Q_PROPERTY(QJSValue bounds READ bounds)
+
+public:
+  ScriptSelectionObject(ScriptEngineHost& host, std::int64_t session_id);
+
+  [[nodiscard]] bool exists() const;
+  [[nodiscard]] QJSValue bounds() const;
+  Q_INVOKABLE void selectAll();
+  Q_INVOKABLE void deselect();
+  Q_INVOKABLE void selectRect(int x, int y, int width, int height);
+  Q_INVOKABLE void selectEllipse(int x, int y, int width, int height);
+  Q_INVOKABLE void fromPath(const QJSValue& path, const QJSValue& options = QJSValue());
+  Q_INVOKABLE QJSValue toPath(const QJSValue& options = QJSValue()) const;
+
+private:
+  ScriptEngineHost& host_;
+  std::int64_t session_id_{0};
+};
+
+class ScriptDocumentObject : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(QString id READ id)
+  Q_PROPERTY(bool modified READ modified)
+  Q_PROPERTY(bool canUndo READ can_undo)
+  Q_PROPERTY(bool canRedo READ can_redo)
+  Q_PROPERTY(int width READ width)
+  Q_PROPERTY(int height READ height)
+  Q_PROPERTY(QString name READ name)
+  Q_PROPERTY(QString path READ path)
+  Q_PROPERTY(double resolution READ resolution)
+  Q_PROPERTY(QJSValue layers READ layers)
+  Q_PROPERTY(QJSValue activeLayer READ active_layer WRITE set_active_layer)
+  Q_PROPERTY(QJSValue selection READ selection)
+  Q_PROPERTY(QJSValue paths READ paths)
+  Q_PROPERTY(QJSValue workPath READ work_path)
+  Q_PROPERTY(QJSValue clippingPath READ clipping_path WRITE set_clipping_path)
+
+public:
+  ScriptDocumentObject(ScriptEngineHost& host, std::int64_t session_id);
+  [[nodiscard]] QString id() const;
+  [[nodiscard]] bool modified() const;
+  [[nodiscard]] bool can_undo() const;
+  [[nodiscard]] bool can_redo() const;
+  Q_INVOKABLE QJSValue getLayer(const QString& id);
+  Q_INVOKABLE QJSValue renderPreview(const QString& path, const QJSValue& options = QJSValue());
+  Q_INVOKABLE bool undo();
+  Q_INVOKABLE bool redo();
+  Q_INVOKABLE QJSValue getPalette() const;
+  Q_INVOKABLE void setPalette(const QJSValue& colors, const QJSValue& options = QJSValue());
+  Q_INVOKABLE QJSValue loadPalette(const QString& path, const QJSValue& options = QJSValue());
+  Q_INVOKABLE bool savePalette(const QString& path, const QString& name = QString());
+
+  [[nodiscard]] int width() const;
+  [[nodiscard]] int height() const;
+  [[nodiscard]] QString name() const;
+  [[nodiscard]] QString path() const;
+  [[nodiscard]] double resolution() const;
+  [[nodiscard]] QJSValue layers() const;
+  [[nodiscard]] QJSValue active_layer() const;
+  void set_active_layer(const QJSValue& layer);
+  [[nodiscard]] QJSValue selection() const;
+
+  Q_INVOKABLE QJSValue addLayer(const QString& name);
+  Q_INVOKABLE QJSValue addShape(const QString& name, const QJSValue& geometry,
+                               const QJSValue& appearance = QJSValue());
+  Q_INVOKABLE QJSValue addFillLayer(const QString& name, const QJSValue& paint);
+  Q_INVOKABLE QJSValue addGroup(const QString& name);
+  Q_INVOKABLE QJSValue groupLayers(const QJSValue& layers, const QString& name);
+  Q_INVOKABLE void moveLayers(const QJSValue& layers, const QJSValue& destination);
+  Q_INVOKABLE QJSValue listVectorResources() const;
+  [[nodiscard]] QJSValue paths() const;
+  [[nodiscard]] QJSValue work_path() const;
+  [[nodiscard]] QJSValue clipping_path() const;
+  void set_clipping_path(const QJSValue& path);
+  Q_INVOKABLE QJSValue getPath(const QString& id) const;
+  Q_INVOKABLE QJSValue addPath(const QString& name, const QJSValue& data);
+  Q_INVOKABLE QJSValue setWorkPath(const QJSValue& data);
+  Q_INVOKABLE QJSValue addTextLayer(const QString& text, const QJSValue& options = QJSValue());
+  Q_INVOKABLE QJSValue findLayer(const QString& name);
+  // Combine Shapes: merges the shape layers (siblings) into the bottom-most
+  // one with op "unite" | "subtract" | "intersect" | "exclude"; returns it.
+  Q_INVOKABLE QJSValue combineShapes(const QJSValue& layers, const QString& op);
+  Q_INVOKABLE QJSValue mergeLayers(const QJSValue& layers, const QJSValue& options = QJSValue());
+  Q_INVOKABLE void flatten();
+  Q_INVOKABLE void resizeImage(int width, int height);
+  Q_INVOKABLE void resizeCanvas(int width, int height);
+  Q_INVOKABLE void crop(int x, int y, int width, int height);
+  Q_INVOKABLE bool saveAs(const QString& path);
+  Q_INVOKABLE bool exportAs(const QString& path);
+  Q_INVOKABLE void close();
+  Q_INVOKABLE void activate();
+
+  [[nodiscard]] std::int64_t session_id() const noexcept { return session_id_; }
+
+private:
+  [[nodiscard]] const Document* read_document() const;
+  [[nodiscard]] Document* write_document();
+
+  ScriptEngineHost& host_;
+  std::int64_t session_id_{0};
+};
+
+class ScriptAppObject : public QObject {
+  Q_OBJECT
+  Q_PROPERTY(QString version READ version CONSTANT)
+  Q_PROPERTY(int apiVersion READ api_version CONSTANT)
+  Q_PROPERTY(QJSValue documents READ documents)
+  Q_PROPERTY(QJSValue activeDocument READ active_document)
+  Q_PROPERTY(bool undoEnabled READ undo_enabled WRITE set_undo_enabled)
+
+public:
+  explicit ScriptAppObject(ScriptEngineHost& host);
+
+  [[nodiscard]] QString version() const;
+  [[nodiscard]] int api_version() const noexcept { return 1; }
+  [[nodiscard]] QJSValue documents() const;
+  [[nodiscard]] QJSValue active_document() const;
+  [[nodiscard]] bool undo_enabled() const;
+  void set_undo_enabled(bool enabled);
+
+  Q_INVOKABLE QJSValue open(const QString& path);
+  Q_INVOKABLE QJSValue getDocument(const QString& id);
+  Q_INVOKABLE QJSValue newDocument(int width, int height);
+  Q_INVOKABLE void alert(const QString& text);
+  Q_INVOKABLE QJSValue prompt(const QString& text, const QString& defaultValue = QString());
+  // Modal folder/file pickers; empty string when cancelled or unattended (CLI).
+  Q_INVOKABLE QString chooseFolder(const QString& title = QString());
+  Q_INVOKABLE QString chooseOpenFile(const QString& title = QString(),
+                                     const QString& filter = QString());
+  Q_INVOKABLE QString chooseSaveFile(const QString& title = QString(),
+                                     const QString& filter = QString());
+  // Registered app commands by stable hotkey command id (docs/scripting.md).
+  Q_INVOKABLE bool runCommand(const QString& commandId);
+  Q_INVOKABLE QStringList commandIds();
+
+private:
+  ScriptEngineHost& host_;
+};
+
+class ScriptIoObject : public QObject {
+  Q_OBJECT
+
+public:
+  explicit ScriptIoObject(ScriptEngineHost& host);
+
+  Q_INVOKABLE QString readTextFile(const QString& path);
+  Q_INVOKABLE void writeTextFile(const QString& path, const QString& text);
+  // Names of the files in `dir` matching `pattern` ("*.png"; default all
+  // files), sorted case-insensitively. Names only, not full paths.
+  Q_INVOKABLE QStringList listFiles(const QString& dir, const QString& pattern = QString());
+  // File probes so a script can verify its own output (and tests can drive the
+  // real build through --run-script). None of them throw.
+  Q_INVOKABLE bool fileExists(const QString& path);
+  // Size in bytes, or -1 when `path` is not an existing file.
+  Q_INVOKABLE double fileSize(const QString& path);
+  // Creates the folder and any missing parents; true when it exists afterwards.
+  Q_INVOKABLE bool makeDir(const QString& path);
+  // Removes one file (never a folder); true when it was removed.
+  Q_INVOKABLE bool deleteFile(const QString& path);
+
+private:
+  ScriptEngineHost& host_;
+};
+
+class ScriptUiObject : public QObject {
+  Q_OBJECT
+
+public:
+  explicit ScriptUiObject(ScriptEngineHost& host);
+
+  // Options object: {width, height, title}. Returns a ScriptCanvasWindow.
+  Q_INVOKABLE QJSValue createCanvas(const QJSValue& options = QJSValue());
+  // Declarative modal form ({title, fields: [{key, label, type, value, ...}]});
+  // returns the values object, or null when cancelled. Unattended CLI runs
+  // return the defaults.
+  Q_INVOKABLE QJSValue showDialog(const QJSValue& spec);
+  // showDialog plus the standard options behavior: --script-arg values
+  // override the field defaults, and unattended runs (CLI) skip the dialog,
+  // returning the effective values. The recommended front door for scripts
+  // with options (docs/scripting.md "Script options").
+  Q_INVOKABLE QJSValue showOptions(const QJSValue& spec);
+  // Fire-and-forget synthesized blip: frequency 20..20000 Hz, duration
+  // 1..4000 ms, volume 0..1, wave "sine" (default) or "square". QJSValue
+  // parameters so omitted JS arguments get these defaults (missing args
+  // arrive as undefined, never as C++ default values).
+  Q_INVOKABLE void playTone(const QJSValue& frequency = QJSValue(),
+                            const QJSValue& durationMs = QJSValue(),
+                            const QJSValue& volume = QJSValue(),
+                            const QJSValue& wave = QJSValue());
+  // Plays a .wav file (up to 10 MB). Relative paths resolve like include():
+  // beside the running script, then the user scripts folder, then bundled.
+  Q_INVOKABLE void playSound(const QString& path);
+  // UI staging for automation (README shots, demos): resize the main window,
+  // set the right panel stack width, save a PNG capture of the main window.
+  Q_INVOKABLE void setWindowSize(int width, int height);
+  Q_INVOKABLE void setSidePanelWidth(int width);
+  Q_INVOKABLE bool captureWindow(const QString& path);
+  // Shows a message in the main window's status bar (progress readouts).
+  Q_INVOKABLE void setStatusMessage(const QString& message);
+  // The active document's view zoom in percent (0 with no document). Setting
+  // clamps like the status bar; throws for NaN/non-positive values or with no
+  // document. Only window captures see the view, never document previews.
+  Q_PROPERTY(double zoom READ zoom WRITE set_zoom)
+  [[nodiscard]] double zoom() const;
+  void set_zoom(double percent);
+  // View > Fit on Screen for the active document; throws with no document.
+  Q_INVOKABLE void fitOnScreen();
+  Q_INVOKABLE void present(const QJSValue& delayMs = QJSValue());
+  Q_PROPERTY(bool slowMode READ slow_mode WRITE set_slow_mode)
+  [[nodiscard]] bool slow_mode() const;
+  void set_slow_mode(bool enabled);
+  Q_PROPERTY(bool paused READ paused WRITE set_paused)
+  [[nodiscard]] bool paused() const;
+  void set_paused(bool paused);
+
+private:
+  ScriptEngineHost& host_;
+};
+
+// Shared by the wrapper implementations: a JS document/layer wrapper for the
+// given identity (JS-GC-owned, parentless).
+[[nodiscard]] QJSValue make_document_value(ScriptEngineHost& host, std::int64_t session_id);
+[[nodiscard]] QJSValue make_layer_value(ScriptEngineHost& host, std::int64_t session_id, LayerId layer_id);
+
+}  // namespace patchy::ui

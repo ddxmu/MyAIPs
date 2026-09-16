@@ -1,0 +1,2680 @@
+#include "ui/canvas_widget.hpp"
+#include "core/adjustment_layer.hpp"
+#include "core/contour_presets.hpp"
+#include "core/gradient_presets.hpp"
+#include "core/layer_metadata.hpp"
+#include "core/pattern_presets.hpp"
+#include "core/smart_filter.hpp"
+#include "core/smart_filter_effects.hpp"
+#include "core/smart_object.hpp"
+#include "core/text_warp.hpp"
+#include "ui/smart_object_render.hpp"
+#include "core/layer_tree.hpp"
+#include "core/palette.hpp"
+#include "core/palette_presets.hpp"
+#include "ui/palette_panel.hpp"
+#include "ui/pattern_library.hpp"
+#include "ui/pattern_manager_dialog.hpp"
+#include "ui/photo_pattern_presets.hpp"
+#include "ui/style_browser.hpp"
+#include "ui/style_library.hpp"
+#include "ui/style_manager_dialog.hpp"
+#include "psd/asl_io.hpp"
+#include "psd/psd_binary.hpp"
+#include "psd/psd_layer_effects.hpp"
+#include "core/style_presets.hpp"
+#include "ui/brush_tip_library.hpp"
+#include "ui/brush_tip_manager_dialog.hpp"
+#include "ui/brush_tip_picker.hpp"
+#include "ui/blend_if_range_editor.hpp"
+#include "ui/color_panel.hpp"
+#include "ui/default_brush_tips.hpp"
+#include "ui/dialog_utils.hpp"
+#include "ui/document_float_window.hpp"
+#include "ui/compatibility_report.hpp"
+#include "ui/curves_editor.hpp"
+#include "ui/curves_presets.hpp"
+#include "ui/filter_workflows.hpp"
+#include "ui/filter_look_library.hpp"
+#include "ui/font_picker.hpp"
+#include "ui/gradient_stops_editor.hpp"
+#include "ui/gradient_library.hpp"
+#include "ui/gradient_manager_dialog.hpp"
+#include "formats/acv_curves_io.hpp"
+#include "formats/bmp_document_io.hpp"
+#include "formats/aseprite_document_io.hpp"
+#include "formats/ico_document_io.hpp"
+#include "formats/tga_document_io.hpp"
+#include "ui/image_document_io.hpp"
+#include "ui/image_save_options_dialog.hpp"
+#include "ui/layer_list_widget.hpp"
+#include "ui/layer_style_dialog.hpp"
+#include "ui/localization.hpp"
+#include "ui/main_window.hpp"
+#include "ui/print_dialog.hpp"
+#include "ui/selection_outline.hpp"
+#include "ui/sprite_sheet_dialog.hpp"
+#include "ui/splash_dialog.hpp"
+#include "ui/app_settings.hpp"
+#include "ui/update_checker.hpp"
+#include "ui/visual_filter_gallery_dialog.hpp"
+#include "ui/zoomable_image_preview.hpp"
+#include "ui/zoom_status_bar.hpp"
+#include "filters/builtin_filters.hpp"
+#include "psd/psd_document_io.hpp"
+#include "psd/psd_filter_effects.hpp"
+#include "render/compositor.hpp"
+#include "synthetic_dng.hpp"
+#include "test_fonts.hpp"
+#include "test_harness.hpp"
+#include "local_psd_fixtures.hpp"
+
+#include <QAbstractItemModel>
+#include <QAbstractSpinBox>
+#include <QAbstractItemView>
+#include <QAbstractTextDocumentLayout>
+#include <QAction>
+#include <QApplication>
+#include <QBuffer>
+#include <QByteArray>
+#include <QCheckBox>
+#include <QClipboard>
+#include <QComboBox>
+#include <QContextMenuEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDataStream>
+#include <QDockWidget>
+#include <QDir>
+#include <QDoubleSpinBox>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFont>
+#include <QFontComboBox>
+#include <QFontDatabase>
+#include <QFrame>
+#include <QGroupBox>
+#include <QImage>
+#include <QImageReader>
+#include <QImageWriter>
+#include <QInputDevice>
+#include <QInputDialog>
+#include <QKeyEvent>
+#include <QItemSelectionModel>
+#include <QLabel>
+#include <QLineEdit>
+#include <QList>
+#include <QListView>
+#include <QLayout>
+#include <QListWidget>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTemporaryDir>
+#include <QLocale>
+#include <QSizeGrip>
+#include <QMetaObject>
+#include <QMouseEvent>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMimeData>
+#include <QMessageBox>
+#include <QIODevice>
+#include <QLinearGradient>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPointer>
+#include <QPolygonF>
+#include <QThread>
+#include <QPaintEvent>
+#include <QPixmap>
+#include <QPointingDevice>
+#include <QProgressDialog>
+#include <QPushButton>
+#include <QStackedWidget>
+#include <QRadioButton>
+#include <QSpinBox>
+#include <QStringList>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QScreen>
+#include <QSettings>
+#include <QSlider>
+#include <QStandardItemModel>
+#include <QStatusBar>
+#include <QStyle>
+#include <QStyleOptionSlider>
+#include <QStyleOptionSpinBox>
+#include <QTabBar>
+#include <QTabWidget>
+#include <QTableWidget>
+#include <QTabletEvent>
+#include <QTest>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextEdit>
+#include <QTextDocument>
+#include <QTextFragment>
+#include <QTextLayout>
+#include <QTimer>
+#include <QToolBar>
+#include <QToolButton>
+#include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
+#include <QUrl>
+#include <QVariant>
+#include <QWheelEvent>
+#include <QWindow>
+#include <QWidget>
+
+#include <algorithm>
+#include <atomic>
+#include <array>
+#include <cstdint>
+#include <cmath>
+#include <cstring>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include "ui_test_access.hpp"
+#include "ui_test_groups.hpp"
+#include "ui_test_support.hpp"
+
+namespace {
+
+using namespace patchy::test::ui;
+
+void ui_startup_defaults_to_round_brush() {
+  SettingsValueRestorer saved_brush_preset(QStringLiteral("tools/brushPreset"));
+  SettingsValueRestorer saved_brush_size(QStringLiteral("tools/brushSize"));
+  SettingsValueRestorer saved_brush_opacity(QStringLiteral("tools/brushOpacity"));
+  SettingsValueRestorer saved_brush_softness(QStringLiteral("tools/brushSoftness"));
+  SettingsValueRestorer saved_brush_build_up(QStringLiteral("tools/brushBuildUp"));
+  SettingsValueRestorer saved_eraser_size(QStringLiteral("tools/eraserSize"));
+  SettingsValueRestorer saved_eraser_opacity(QStringLiteral("tools/eraserOpacity"));
+  SettingsValueRestorer saved_eraser_softness(QStringLiteral("tools/eraserSoftness"));
+  SettingsValueRestorer saved_gradient_method(QStringLiteral("tools/gradientMethod"));
+  SettingsValueRestorer saved_gradient_reverse(QStringLiteral("tools/gradientReverse"));
+  SettingsValueRestorer saved_gradient_opacity(QStringLiteral("tools/gradientOpacity"));
+  SettingsValueRestorer saved_gradient_use_custom(QStringLiteral("tools/gradientUseCustomStops"));
+  SettingsValueRestorer saved_gradient_stops(QStringLiteral("tools/gradientStops"));
+  {
+    auto settings = patchy::ui::app_settings();
+    // Stale brush state from an earlier session. A launch must reset all of it
+    // (only the eraser size may survive a restart).
+    settings.setValue(QStringLiteral("tools/brushPreset"), QStringLiteral("airbrush"));
+    settings.setValue(QStringLiteral("tools/brushSize"), 56);
+    settings.setValue(QStringLiteral("tools/brushOpacity"), 12);
+    settings.setValue(QStringLiteral("tools/brushSoftness"), 100);
+    settings.setValue(QStringLiteral("tools/brushBuildUp"), true);
+    settings.setValue(QStringLiteral("tools/eraserSize"), 77);
+    settings.setValue(QStringLiteral("tools/eraserOpacity"), 15);
+    settings.setValue(QStringLiteral("tools/eraserSoftness"), 95);
+    settings.setValue(QStringLiteral("tools/gradientMethod"), static_cast<int>(patchy::GradientMethod::Radial));
+    settings.setValue(QStringLiteral("tools/gradientReverse"), true);
+    settings.setValue(QStringLiteral("tools/gradientOpacity"), 66);
+    settings.setValue(QStringLiteral("tools/gradientUseCustomStops"), true);
+    settings.setValue(QStringLiteral("tools/gradientStops"),
+                      QStringLiteral("[{\"location\":0,\"r\":10,\"g\":20,\"b\":30,\"a\":255},"
+                                     "{\"location\":1,\"r\":40,\"g\":50,\"b\":60,\"a\":128}]"));
+    settings.sync();
+  }
+
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* brush_preset = window.findChild<QComboBox*>(QStringLiteral("brushPresetCombo"));
+  auto* brush_size = window.findChild<QSpinBox*>(QStringLiteral("brushSizeSpin"));
+  auto* brush_opacity = window.findChild<QSpinBox*>(QStringLiteral("brushOpacitySpin"));
+  auto* brush_flow = window.findChild<QSpinBox*>(QStringLiteral("brushFlowSpin"));
+  auto* brush_airbrush = window.findChild<QCheckBox*>(QStringLiteral("brushAirbrushCheck"));
+  auto* brush_softness = window.findChild<QSpinBox*>(QStringLiteral("brushSoftnessSpin"));
+  auto* gradient_method = window.findChild<QComboBox*>(QStringLiteral("gradientMethodCombo"));
+  auto* gradient_opacity = window.findChild<QSpinBox*>(QStringLiteral("gradientOpacitySpin"));
+  auto* gradient_reverse = window.findChild<QCheckBox*>(QStringLiteral("gradientReverseCheck"));
+  CHECK(brush_preset != nullptr);
+  CHECK(brush_size != nullptr);
+  CHECK(brush_opacity != nullptr);
+  CHECK(brush_flow != nullptr);
+  CHECK(brush_airbrush != nullptr);
+  CHECK(brush_softness != nullptr);
+  CHECK(gradient_method != nullptr);
+  CHECK(gradient_opacity != nullptr);
+  CHECK(gradient_reverse != nullptr);
+  CHECK(brush_preset->currentData().toString() == QStringLiteral("round"));
+  CHECK(brush_size->value() == 25);
+  CHECK(brush_opacity->value() == 100);
+  CHECK(brush_flow->value() == 100);
+  CHECK(!brush_airbrush->isChecked());
+  CHECK(brush_softness->value() == 0);
+  CHECK(canvas->brush_size() == 25);
+  CHECK(canvas->brush_opacity() == 100);
+  CHECK(canvas->brush_flow() == 100);
+  CHECK(canvas->brush_softness() == 0);
+  CHECK(!canvas->brush_build_up());
+  // The eraser restores only its size; opacity/flow/Airbrush/softness reset
+  // with the brush.
+  require_action_by_text(window, QStringLiteral("Eraser"))->trigger();
+  CHECK(canvas->brush_size() == 77);
+  CHECK(canvas->brush_opacity() == 100);
+  CHECK(canvas->brush_flow() == 100);
+  CHECK(canvas->brush_softness() == 0);
+  CHECK(!canvas->brush_build_up());
+  require_action_by_text(window, QStringLiteral("Brush"))->trigger();
+  CHECK(canvas->brush_size() == 25);
+  CHECK(canvas->gradient_method() == patchy::GradientMethod::Radial);
+  CHECK(canvas->gradient_reverse());
+  CHECK(canvas->gradient_opacity() == 66);
+  CHECK(canvas->gradient_stops().has_value());
+  CHECK(canvas->gradient_stops()->size() == 2);
+  CHECK(gradient_method->currentData().toInt() == static_cast<int>(patchy::GradientMethod::Radial));
+  CHECK(gradient_opacity->value() == 66);
+  CHECK(gradient_reverse->isChecked());
+}
+
+void ui_options_bar_spinboxes_fit_widest_value() {
+  // "100%" in the brush Opacity box rendered as "100": the 52px fixed width left
+  // no room for the suffix once the popup chevron claimed its 14px text margin.
+  // configure_toolbar_spinbox now treats the requested width as a minimum and
+  // grows the box to fit its widest value text; require chevron + box chrome
+  // clearance beyond the min/max text on every options-bar spin box.
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* toolbar = window.findChild<QToolBar*>(QStringLiteral("Options"));
+  CHECK(toolbar != nullptr);
+  const auto require_fits = [](const QWidget* spin, const QString& text) {
+    const int required = spin->fontMetrics().horizontalAdvance(text) + 24;
+    if (spin->minimumWidth() < required) {
+      std::fprintf(stderr, "  %s: width %d < %d needed for \"%s\"\n",
+                   qPrintable(spin->objectName()), spin->minimumWidth(), required,
+                   qPrintable(text));
+    }
+    CHECK(spin->minimumWidth() >= required);
+  };
+  int checked = 0;
+  for (const auto* spin : toolbar->findChildren<QSpinBox*>()) {
+    if (!spin->property("patchy.numericPopupInstalled").toBool()) {
+      continue;
+    }
+    const auto locale = spin->locale();
+    require_fits(spin, spin->prefix() + locale.toString(spin->minimum()) + spin->suffix());
+    require_fits(spin, spin->prefix() + locale.toString(spin->maximum()) + spin->suffix());
+    ++checked;
+  }
+  for (const auto* spin : toolbar->findChildren<QDoubleSpinBox*>()) {
+    if (!spin->property("patchy.numericPopupInstalled").toBool()) {
+      continue;
+    }
+    const auto locale = spin->locale();
+    require_fits(spin, spin->prefix() + locale.toString(spin->minimum(), 'f', spin->decimals()) +
+                           spin->suffix());
+    require_fits(spin, spin->prefix() + locale.toString(spin->maximum(), 'f', spin->decimals()) +
+                           spin->suffix());
+    ++checked;
+  }
+  CHECK(checked >= 10);
+}
+
+void ui_canvas_wheel_matches_photoshop_navigation() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->setFocus();
+  // This test exercises the Photoshop-style pan navigation (wheel zoom off).
+  canvas->set_wheel_zooms(false);
+
+  const auto initial_zoom = canvas->zoom();
+  const auto initial_origin = canvas->widget_position_for_document_point(QPoint(0, 0));
+  send_wheel(*canvas, QPoint(300, 240), 120);
+  const auto horizontal_pan_origin = canvas->widget_position_for_document_point(QPoint(0, 0));
+  CHECK(canvas->zoom() == initial_zoom);
+  CHECK(horizontal_pan_origin.x() != initial_origin.x());
+  CHECK(horizontal_pan_origin.y() == initial_origin.y());
+
+  send_wheel(*canvas, QPoint(300, 240), 120, Qt::ControlModifier);
+  const auto vertical_pan_origin = canvas->widget_position_for_document_point(QPoint(0, 0));
+  CHECK(canvas->zoom() == initial_zoom);
+  CHECK(vertical_pan_origin.y() != horizontal_pan_origin.y());
+
+  send_wheel(*canvas, QPoint(300, 240), 120, Qt::AltModifier);
+  CHECK(canvas->zoom() > initial_zoom);
+  save_widget_artifact("ui_canvas_wheel_navigation", *canvas);
+}
+
+void ui_canvas_wheel_zoom_mode_zooms_at_cursor() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->setFocus();
+  // The mode default is platform-dependent (macOS pans on a plain wheel; see
+  // MainWindow::kWheelZoomsDefault). Pin the default, then switch the zoom mode on
+  // explicitly -- this test drives the MODE's behavior, not the default.
+  CHECK(canvas->wheel_zooms() == patchy::ui::MainWindow::kWheelZoomsDefault);
+  canvas->set_wheel_zooms(true);
+
+  const auto initial_zoom = canvas->zoom();
+  send_wheel(*canvas, QPoint(300, 240), 120);
+  CHECK(canvas->zoom() > initial_zoom);
+
+  send_wheel(*canvas, QPoint(300, 240), -120);
+  send_wheel(*canvas, QPoint(300, 240), -120);
+  CHECK(canvas->zoom() < initial_zoom);
+
+  const auto zoom_before_pan = canvas->zoom();
+  const auto origin_before_pan = canvas->widget_position_for_document_point(QPoint(0, 0));
+  send_wheel(*canvas, QPoint(300, 240), 120, Qt::ShiftModifier);
+  CHECK(canvas->zoom() == zoom_before_pan);
+  CHECK(canvas->widget_position_for_document_point(QPoint(0, 0)).x() != origin_before_pan.x());
+}
+
+void ui_status_bar_zoom_percent_box_edits_zoom() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+
+  auto* zoom_edit = window.statusBar()->findChild<patchy::ui::ZoomPercentEdit*>(QStringLiteral("statusZoomEdit"));
+  CHECK(zoom_edit != nullptr);
+  CHECK(zoom_edit->isEnabled());
+  CHECK(zoom_edit->text() == patchy::ui::ZoomPercentEdit::format_zoom_text(canvas->zoom()));
+
+  // The box sits at the far left and must stay visible while a persistent status
+  // message shows (QStatusBar hides normal left-side widgets whenever one does).
+  window.statusBar()->showMessage(QStringLiteral("Something informative"));
+  QApplication::processEvents();
+  CHECK(zoom_edit->isVisible());
+  CHECK(zoom_edit->x() < 20);
+
+  // Typing a percentage and pressing Enter applies it.
+  zoom_edit->setFocus();
+  QApplication::processEvents();
+  zoom_edit->setText(QStringLiteral("300"));
+  send_key(*zoom_edit, Qt::Key_Return);
+  CHECK(std::abs(canvas->zoom() - 3.0) < 1e-6);
+  CHECK(zoom_edit->text() == QStringLiteral("300%"));
+
+  // Out-of-range values clamp to the canvas zoom limit (12800%).
+  zoom_edit->setFocus();
+  zoom_edit->setText(QStringLiteral("999999"));
+  send_key(*zoom_edit, Qt::Key_Return);
+  CHECK(std::abs(canvas->zoom() - 128.0) < 1e-6);
+  CHECK(zoom_edit->text() == QStringLiteral("12800%"));
+
+  // Fractional percentages apply and display with two decimals.
+  zoom_edit->setFocus();
+  zoom_edit->setText(QStringLiteral("33.33"));
+  send_key(*zoom_edit, Qt::Key_Return);
+  CHECK(std::abs(canvas->zoom() - 0.3333) < 1e-6);
+  CHECK(zoom_edit->text() == QStringLiteral("33.33%"));
+
+  // Escape reverts a pending edit without changing the zoom.
+  zoom_edit->setFocus();
+  QApplication::processEvents();
+  zoom_edit->setText(QStringLiteral("55"));
+  send_key(*zoom_edit, Qt::Key_Escape);
+  CHECK(zoom_edit->text() == QStringLiteral("33.33%"));
+  CHECK(std::abs(canvas->zoom() - 0.3333) < 1e-6);
+
+  // Zooming by any other means keeps the box in sync.
+  canvas->set_zoom(1.0);
+  QApplication::processEvents();
+  CHECK(zoom_edit->text() == QStringLiteral("100%"));
+
+  save_widget_artifact("ui_status_zoom_percent_box", *window.statusBar());
+}
+
+void ui_zoom_tool_double_click_keeps_view_centered_at_actual_pixels() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+
+  // Center the view on the middle of the default 1024x768 document, then zoom to 300%.
+  canvas->fit_to_view();
+  canvas->set_zoom_centered(3.0);
+  CHECK(std::abs(canvas->zoom() - 3.0) < 1e-6);
+  const QPoint document_center(512, 384);
+  const QPoint widget_center(canvas->width() / 2, canvas->height() / 2);
+  const auto before = canvas->widget_position_for_document_point(document_center);
+  CHECK(std::abs(before.x() - widget_center.x()) <= 2);
+  CHECK(std::abs(before.y() - widget_center.y()) <= 2);
+
+  // Double-clicking the Zoom tool resets to 100% and must keep the viewport anchored:
+  // the document point that was at the viewport center stays there instead of the
+  // canvas panning mostly off screen.
+  auto* zoom_button = window.findChild<QToolButton*>(QStringLiteral("zoomToolButton"));
+  CHECK(zoom_button != nullptr);
+  send_double_click(*zoom_button, zoom_button->rect().center());
+  CHECK(std::abs(canvas->zoom() - 1.0) < 1e-6);
+  const auto after = canvas->widget_position_for_document_point(document_center);
+  CHECK(std::abs(after.x() - widget_center.x()) <= 2);
+  CHECK(std::abs(after.y() - widget_center.y()) <= 2);
+}
+
+void ui_image_resize_recenters_view_and_zoom_double_click_shows_document() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->fit_to_view();
+
+  // Image > Image Size to half keeps the zoom; the view must recenter on the
+  // smaller document instead of leaving it shrunk toward the top-left with the
+  // viewport center over grey margin.
+  accept_image_size_dialog(512, 384);
+  require_action(window, "imageSizeAction")->trigger();
+  QApplication::processEvents();
+  const QPoint widget_center(canvas->width() / 2, canvas->height() / 2);
+  const QPoint document_center(256, 192);
+  const auto after_resize = canvas->widget_position_for_document_point(document_center);
+  CHECK(std::abs(after_resize.x() - widget_center.x()) <= 2);
+  CHECK(std::abs(after_resize.y() - widget_center.y()) <= 2);
+
+  // Double-clicking the Zoom tool jumps to 100% and must leave the document
+  // centered; anchoring the stale viewport-center point used to push it almost
+  // entirely off screen.
+  auto* zoom_button = window.findChild<QToolButton*>(QStringLiteral("zoomToolButton"));
+  CHECK(zoom_button != nullptr);
+  send_double_click(*zoom_button, zoom_button->rect().center());
+  CHECK(std::abs(canvas->zoom() - 1.0) < 1e-6);
+  const auto after_zoom = canvas->widget_position_for_document_point(document_center);
+  CHECK(std::abs(after_zoom.x() - widget_center.x()) <= 2);
+  CHECK(std::abs(after_zoom.y() - widget_center.y()) <= 2);
+}
+
+void ui_size_dialogs_open_with_width_focused_and_selected() {
+  patchy::ui::MainWindow window;  // default document: 1024x768
+  show_window(window);
+
+  // Both size dialogs pre-set focus and selection on the Width spin before
+  // exec() so a new width can be typed immediately (Photoshop behavior). The
+  // wasm build must repair that focus after create-time window activation
+  // (WasmDialogInitialFocusGuard, dialog_utils.cpp); this pins the intended
+  // state where Qt gets it right natively.
+  const auto check_dialog = [](const QString& dialog_name, const QString& spin_name) {
+    QTimer::singleShot(0, [dialog_name, spin_name] {
+      for (auto* widget : QApplication::topLevelWidgets()) {
+        if (widget->objectName() != dialog_name) {
+          continue;
+        }
+        auto* dialog = qobject_cast<QDialog*>(widget);
+        auto* width = dialog->findChild<QAbstractSpinBox*>(spin_name);
+        CHECK(width != nullptr);
+        auto* focus = dialog->focusWidget();
+        CHECK(focus != nullptr && (focus == width || width->isAncestorOf(focus)));
+        auto* edit = width->findChild<QLineEdit*>();
+        CHECK(edit != nullptr);
+        CHECK(!edit->text().isEmpty());
+        CHECK(edit->selectedText() == edit->text());
+        dialog->grab().save(QStringLiteral("test-artifacts/%1_initial_focus.png").arg(dialog_name));
+        dialog->reject();
+        return;
+      }
+      CHECK(false);
+    });
+  };
+  check_dialog(QStringLiteral("patchyImageSizeDialog"), QStringLiteral("imageSizeWidthSpin"));
+  require_action(window, "imageSizeAction")->trigger();
+  QApplication::processEvents();
+  check_dialog(QStringLiteral("patchyCanvasSizeDialog"), QStringLiteral("canvasSizeWidthSpin"));
+  require_action(window, "imageCanvasSizeAction")->trigger();
+  QApplication::processEvents();
+}
+
+void ui_zoom_preset_recovers_parked_view() {
+  patchy::Document document(200, 150, patchy::PixelFormat::rgba8());
+  document.add_pixel_layer("Paint", solid_pixels(200, 150, patchy::PixelFormat::rgba8(), QColor(90, 120, 200)));
+
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(400, 300);
+  canvas.set_document(&document);
+  canvas.show();
+  QApplication::processEvents();
+
+  // Park the half-zoom document almost entirely past the top-left edge with
+  // the hand-pan API; the 10%-visible pan rule allows it, so the viewport
+  // center ends up over grey margin.
+  canvas.set_zoom(0.5);
+  CHECK(canvas.begin_pan_at_global_position(canvas.mapToGlobal(QPoint(200, 150))));
+  CHECK(canvas.pan_to_global_position(canvas.mapToGlobal(QPoint(-400, -300))));
+  CHECK(canvas.end_pan());
+  const auto parked_origin = canvas.widget_position_for_document_point(QPoint(0, 0));
+  CHECK(parked_origin.x() < 0);
+  CHECK(parked_origin.y() < 0);
+
+  // A preset zoom where the document overflows the viewport clamps
+  // Photoshop-style: the anchor pins to the document, and no grey shows past
+  // the document edges.
+  canvas.set_zoom_centered(4.0);
+  CHECK(std::abs(canvas.zoom() - 4.0) < 1e-6);
+  const auto overflow_origin = canvas.widget_position_for_document_point(QPoint(0, 0));
+  const auto overflow_corner = canvas.widget_position_for_document_point(QPoint(200, 150));
+  CHECK(overflow_origin.x() <= 0);
+  CHECK(overflow_origin.y() <= 0);
+  CHECK(overflow_corner.x() >= canvas.width());
+  CHECK(overflow_corner.y() >= canvas.height());
+
+  // Back at 100% the document fits the viewport, so the preset recenters it.
+  canvas.set_zoom_centered(1.0);
+  CHECK(std::abs(canvas.zoom() - 1.0) < 1e-6);
+  const auto center = canvas.widget_position_for_document_point(QPoint(100, 75));
+  CHECK(std::abs(center.x() - 200) <= 2);
+  CHECK(std::abs(center.y() - 150) <= 2);
+}
+
+void ui_canvas_focus_in_restores_tool_cursor() {
+  patchy::Document document(64, 64, patchy::PixelFormat::rgba8());
+  document.add_pixel_layer("Paint", solid_pixels(64, 64, patchy::PixelFormat::rgba8(), QColor(0, 0, 0, 0)));
+
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(120, 120);
+  canvas.set_document(&document);
+  canvas.set_tool(patchy::ui::CanvasTool::Brush);
+  canvas.set_brush_size(20);
+  canvas.show();
+  QApplication::processEvents();
+
+  // Simulate the OS (Windows) resetting the cursor to an arrow on re-activation.
+  canvas.setCursor(Qt::ArrowCursor);
+  CHECK(canvas.cursor().shape() == Qt::ArrowCursor);
+
+  // Regaining focus / re-entry must restore the brush (custom pixmap) cursor.
+  canvas.refresh_tool_cursor();
+  CHECK(canvas.cursor().shape() == Qt::BitmapCursor);
+}
+
+void ui_max_brush_uses_overlay_cursor() {
+  patchy::Document document(64, 64, patchy::PixelFormat::rgba8());
+  document.add_pixel_layer("Paint", solid_pixels(64, 64, patchy::PixelFormat::rgba8(), QColor(0, 0, 0, 0)));
+
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(120, 120);
+  canvas.set_document(&document);
+  canvas.set_tool(patchy::ui::CanvasTool::Brush);
+  canvas.set_zoom(1.0);
+  canvas.set_brush_size(patchy::ui::kMaxBrushSize);
+  canvas.show();
+  QApplication::processEvents();
+
+  CHECK(canvas.cursor().shape() == Qt::CrossCursor);
+  CHECK(canvas.cursor().pixmap().isNull());
+
+  // Every retouch tool with the round footprint cursor switches to the overlay
+  // crosshair at large sizes too (browsers reject the giant pixmap cursor in
+  // the wasm build) and returns to a pixmap cursor when small.
+  const patchy::ui::CanvasTool footprint_tools[] = {
+      patchy::ui::CanvasTool::Clone,        patchy::ui::CanvasTool::Healing,
+      patchy::ui::CanvasTool::SpotHealing,  patchy::ui::CanvasTool::Smudge,
+      patchy::ui::CanvasTool::Dodge,        patchy::ui::CanvasTool::Burn,
+      patchy::ui::CanvasTool::Sponge,       patchy::ui::CanvasTool::BlurBrush,
+      patchy::ui::CanvasTool::SharpenBrush};
+  for (const auto tool : footprint_tools) {
+    canvas.set_tool(tool);
+    canvas.set_brush_size(patchy::ui::kMaxBrushSize);
+    CHECK(canvas.cursor().shape() == Qt::CrossCursor);
+    CHECK(canvas.cursor().pixmap().isNull());
+    canvas.set_brush_size(48);
+    CHECK(canvas.cursor().shape() == Qt::BitmapCursor);
+  }
+}
+
+void ui_canvas_pan_keeps_document_partly_visible() {
+  patchy::Document document(100, 80, patchy::PixelFormat::rgba8());
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(500, 400);
+  canvas.set_document(&document);
+  canvas.set_tool(patchy::ui::CanvasTool::Pan);
+  canvas.show();
+  QApplication::processEvents();
+
+  const auto minimum_visible = [](int viewport_span, int document_span) {
+    return std::max(1, static_cast<int>(std::ceil(static_cast<double>(std::min(viewport_span, document_span)) * 0.10)));
+  };
+  const auto visible_document_rect = [&] {
+    const auto top_left = canvas.widget_position_for_document_point(QPoint(0, 0));
+    return QRect(top_left, QSize(document.width(), document.height())).intersected(canvas.rect());
+  };
+  const auto check_minimum_visible = [&] {
+    const auto visible = visible_document_rect();
+    CHECK(visible.width() >= minimum_visible(canvas.width(), document.width()));
+    CHECK(visible.height() >= minimum_visible(canvas.height(), document.height()));
+  };
+
+  send_mouse(canvas, QEvent::MouseButtonPress, QPoint(250, 200), Qt::LeftButton, Qt::LeftButton);
+  send_mouse(canvas, QEvent::MouseMove, QPoint(5000, 4000), Qt::NoButton, Qt::LeftButton);
+  send_mouse(canvas, QEvent::MouseButtonRelease, QPoint(5000, 4000), Qt::LeftButton, Qt::NoButton);
+  check_minimum_visible();
+
+  send_mouse(canvas, QEvent::MouseButtonPress, QPoint(250, 200), Qt::LeftButton, Qt::LeftButton);
+  send_mouse(canvas, QEvent::MouseMove, QPoint(-5000, -4000), Qt::NoButton, Qt::LeftButton);
+  send_mouse(canvas, QEvent::MouseButtonRelease, QPoint(-5000, -4000), Qt::LeftButton, Qt::NoButton);
+  check_minimum_visible();
+}
+
+std::pair<QScrollBar*, QScrollBar*> require_canvas_scroll_bars(patchy::ui::CanvasWidget& canvas) {
+  auto* horizontal = canvas.findChild<QScrollBar*>(QStringLiteral("canvasHorizontalScrollBar"));
+  auto* vertical = canvas.findChild<QScrollBar*>(QStringLiteral("canvasVerticalScrollBar"));
+  CHECK(horizontal != nullptr);
+  CHECK(vertical != nullptr);
+  return {horizontal, vertical};
+}
+
+void ui_canvas_scroll_bars_reflect_pan_range() {
+  patchy::Document document(100, 80, patchy::PixelFormat::rgba8());
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(500, 400);
+  canvas.set_document(&document);
+  canvas.center_document_in_view();
+  canvas.show();
+  QApplication::processEvents();
+
+  const auto [horizontal, vertical] = require_canvas_scroll_bars(canvas);
+  CHECK(horizontal->isVisible());
+  CHECK(vertical->isVisible());
+
+  // Flush against the bottom/right edges, each shortened by the other's
+  // thickness so the corner square stays free (never assert pixel thickness;
+  // the offscreen style's extent differs from the app style's).
+  CHECK(horizontal->geometry().left() == 0);
+  CHECK(horizontal->geometry().bottom() == canvas.height() - 1);
+  CHECK(horizontal->width() == canvas.width() - vertical->width());
+  CHECK(vertical->geometry().top() == 0);
+  CHECK(vertical->geometry().right() == canvas.width() - 1);
+  CHECK(vertical->height() == canvas.height() - horizontal->height());
+
+  // The range mirrors the pan clamp (>= 10% of the document, or of the viewport
+  // if smaller, stays visible): pan spans
+  // [minimum_visible - document_span, viewport_span - minimum_visible], and the
+  // bar value counts down from the pan maximum (value 0 = top/left extreme).
+  const auto expected_maximum_and_centered_value = [](int viewport_span, int document_span) {
+    const auto minimum_visible =
+        std::max(1.0, static_cast<double>(std::min(viewport_span, document_span)) * 0.10);
+    const auto pan_minimum = minimum_visible - static_cast<double>(document_span);
+    const auto pan_maximum = static_cast<double>(viewport_span) - minimum_visible;
+    const auto centered_pan =
+        (static_cast<double>(viewport_span) - static_cast<double>(document_span)) / 2.0;
+    return std::pair(static_cast<int>(std::lround(pan_maximum - pan_minimum)),
+                     static_cast<int>(std::lround(pan_maximum - centered_pan)));
+  };
+  const auto [h_maximum, h_value] = expected_maximum_and_centered_value(500, 100);  // 580, 290
+  const auto [v_maximum, v_value] = expected_maximum_and_centered_value(400, 80);   // 464, 232
+  CHECK(horizontal->minimum() == 0);
+  CHECK(horizontal->maximum() == h_maximum);
+  CHECK(horizontal->value() == h_value);
+  CHECK(horizontal->pageStep() == 500);
+  CHECK(vertical->minimum() == 0);
+  CHECK(vertical->maximum() == v_maximum);
+  CHECK(vertical->value() == v_value);
+  CHECK(vertical->pageStep() == 400);
+
+  canvas.set_document(nullptr);
+  CHECK(!horizontal->isVisible());
+  CHECK(!vertical->isVisible());
+}
+
+void ui_canvas_hand_pan_updates_scroll_bars() {
+  patchy::Document document(100, 80, patchy::PixelFormat::rgba8());
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(500, 400);
+  canvas.set_document(&document);
+  canvas.center_document_in_view();
+  canvas.set_tool(patchy::ui::CanvasTool::Pan);
+  canvas.show();
+  QApplication::processEvents();
+
+  const auto [horizontal, vertical] = require_canvas_scroll_bars(canvas);
+  const auto h_before = horizontal->value();
+  const auto v_before = vertical->value();
+
+  // Dragging the document left/up by (100, 80) scrolls the view right/down by
+  // the same amount.
+  send_mouse(canvas, QEvent::MouseButtonPress, QPoint(250, 200), Qt::LeftButton, Qt::LeftButton);
+  send_mouse(canvas, QEvent::MouseMove, QPoint(150, 120), Qt::NoButton, Qt::LeftButton);
+  send_mouse(canvas, QEvent::MouseButtonRelease, QPoint(150, 120), Qt::LeftButton, Qt::NoButton);
+
+  CHECK(std::abs(horizontal->value() - (h_before + 100)) <= 1);
+  CHECK(std::abs(vertical->value() - (v_before + 80)) <= 1);
+}
+
+void ui_canvas_scroll_bar_scrolls_view() {
+  patchy::Document document(100, 80, patchy::PixelFormat::rgba8());
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(500, 400);
+  canvas.set_document(&document);
+  canvas.center_document_in_view();
+  canvas.show();
+  QApplication::processEvents();
+
+  const auto [horizontal, vertical] = require_canvas_scroll_bars(canvas);
+  int view_changes = 0;
+  canvas.set_view_changed_callback([&view_changes] { ++view_changes; });
+
+  const auto origin_before = canvas.widget_position_for_document_point(QPoint(0, 0));
+  const auto h_target = horizontal->value() + 50;
+  horizontal->setValue(h_target);
+  auto origin = canvas.widget_position_for_document_point(QPoint(0, 0));
+  CHECK(origin.x() == origin_before.x() - 50);
+  CHECK(origin.y() == origin_before.y());
+  CHECK(horizontal->value() == h_target);  // the resync echo must not fight the user's value
+  CHECK(view_changes == 1);
+
+  const auto v_target = vertical->value() + 30;
+  vertical->setValue(v_target);
+  origin = canvas.widget_position_for_document_point(QPoint(0, 0));
+  CHECK(origin.x() == origin_before.x() - 50);
+  CHECK(origin.y() == origin_before.y() - 30);
+  CHECK(vertical->value() == v_target);
+  CHECK(view_changes == 2);
+}
+
+void ui_canvas_scroll_bars_follow_zoom_and_resize() {
+  patchy::Document document(100, 80, patchy::PixelFormat::rgba8());
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(500, 400);
+  canvas.set_document(&document);
+  canvas.center_document_in_view();
+  canvas.show();
+  QApplication::processEvents();
+
+  const auto [horizontal, vertical] = require_canvas_scroll_bars(canvas);
+
+  canvas.set_zoom(2.0);
+  // Document span doubles to 200x160, so minimum_visible becomes 20/16 and the
+  // range widens: maximum = (viewport - min_vis) - (min_vis - span).
+  CHECK(horizontal->maximum() == 660);  // (500 - 20) - (20 - 200)
+  CHECK(vertical->maximum() == 528);    // (400 - 16) - (16 - 160)
+  CHECK(horizontal->pageStep() == 500);
+
+  canvas.resize(600, 500);
+  QApplication::processEvents();
+  CHECK(horizontal->pageStep() == 600);
+  CHECK(vertical->pageStep() == 500);
+  CHECK(horizontal->maximum() == 760);  // (600 - 20) - (20 - 200)
+  CHECK(vertical->maximum() == 628);    // (500 - 16) - (16 - 160)
+  CHECK(horizontal->geometry().bottom() == canvas.height() - 1);
+  CHECK(vertical->geometry().right() == canvas.width() - 1);
+}
+
+void ui_canvas_fractional_zoom_paints_to_document_edge() {
+  patchy::Document document(1024, 768, patchy::PixelFormat::rgba8());
+  patchy::PixelBuffer pixels(1024, 768, patchy::PixelFormat::rgba8());
+  for (std::int32_t y = 0; y < pixels.height(); ++y) {
+    for (std::int32_t x = 0; x < pixels.width(); ++x) {
+      auto* px = pixels.pixel(x, y);
+      px[0] = 210;
+      px[1] = 80;
+      px[2] = 40;
+      px[3] = 255;
+    }
+  }
+  document.add_pixel_layer("Opaque", std::move(pixels));
+
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(915, 706);
+  canvas.set_document(&document);
+  canvas.fit_to_view();
+  canvas.show();
+  QApplication::processEvents();
+
+  const auto preview = canvas.grab().toImage();
+  const auto top_left = canvas.widget_position_for_document_point(QPoint(0, 0));
+  const auto bottom_right = canvas.widget_position_for_document_point(QPoint(document.width(), document.height()));
+  const QPoint right_edge_sample(bottom_right.x() - 1, (top_left.y() + bottom_right.y()) / 2);
+  CHECK(preview.rect().contains(right_edge_sample));
+  CHECK(!color_close(preview.pixelColor(right_edge_sample), QColor(36, 38, 41), 4));
+}
+
+void ui_canvas_fractional_zoom_keeps_zoomed_in_pixels_sharp() {
+  patchy::Document document(2, 6, patchy::PixelFormat::rgb8());
+  auto pixels = solid_pixels(2, 6, patchy::PixelFormat::rgb8(), Qt::white);
+  fill_pixel_rect(pixels, QRect(0, 0, 1, 6), Qt::black);
+  document.add_pixel_layer("Split", std::move(pixels));
+
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(160, 120);
+  canvas.set_document(&document);
+  canvas.set_zoom(5.5);
+  canvas.show();
+  QApplication::processEvents();
+
+  const auto preview = canvas.grab().toImage();
+  const auto top_left = canvas.widget_position_for_document_point(QPoint(0, 0));
+  const auto bottom_right = canvas.widget_position_for_document_point(QPoint(document.width(), document.height()));
+  const auto sample_y = (top_left.y() + bottom_right.y()) / 2;
+  int black_columns = 0;
+  int white_columns = 0;
+  int interpolated_columns = 0;
+  for (int x = top_left.x() + 1; x < bottom_right.x() - 1; ++x) {
+    if (!preview.rect().contains(QPoint(x, sample_y))) {
+      continue;
+    }
+    const auto color = preview.pixelColor(x, sample_y);
+    if (color_close(color, QColor(Qt::black), 8)) {
+      ++black_columns;
+    } else if (color_close(color, QColor(Qt::white), 8)) {
+      ++white_columns;
+    } else {
+      ++interpolated_columns;
+    }
+  }
+  CHECK(black_columns > 0);
+  CHECK(white_columns > 0);
+  CHECK(interpolated_columns == 0);
+}
+
+void ui_canvas_deep_zoom_without_grid_keeps_pixels_sharp() {
+  patchy::Document document(2, 6, patchy::PixelFormat::rgb8());
+  auto pixels = solid_pixels(2, 6, patchy::PixelFormat::rgb8(), Qt::white);
+  fill_pixel_rect(pixels, QRect(0, 0, 1, 6), Qt::black);
+  document.add_pixel_layer("Split", std::move(pixels));
+
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(180, 140);
+  canvas.set_document(&document);
+  canvas.set_zoom(12.25);
+  canvas.show();
+  QApplication::processEvents();
+
+  const auto preview = canvas.grab().toImage();
+  const auto top_left = canvas.widget_position_for_document_point(QPoint(0, 0));
+  const auto bottom_right = canvas.widget_position_for_document_point(QPoint(document.width(), document.height()));
+  const auto sample_y = (top_left.y() + bottom_right.y()) / 2;
+  int black_columns = 0;
+  int white_columns = 0;
+  int interpolated_columns = 0;
+  for (int x = top_left.x() + 1; x < bottom_right.x() - 1; ++x) {
+    if (!preview.rect().contains(QPoint(x, sample_y))) {
+      continue;
+    }
+    const auto color = preview.pixelColor(x, sample_y);
+    if (color_close(color, QColor(Qt::black), 8)) {
+      ++black_columns;
+    } else if (color_close(color, QColor(Qt::white), 8)) {
+      ++white_columns;
+    } else {
+      ++interpolated_columns;
+    }
+  }
+  CHECK(black_columns > 0);
+  CHECK(white_columns > 0);
+  CHECK(interpolated_columns == 0);
+}
+
+void ui_zoomed_out_canvas_uses_downsampled_display_mip() {
+  patchy::Document document(256, 256, patchy::PixelFormat::rgb8());
+  patchy::PixelBuffer pixels(256, 256, patchy::PixelFormat::rgb8());
+  for (std::int32_t y = 0; y < pixels.height(); ++y) {
+    for (std::int32_t x = 0; x < pixels.width(); ++x) {
+      const auto value = ((x + y) % 2 == 0) ? 0 : 255;
+      auto* px = pixels.pixel(x, y);
+      px[0] = static_cast<std::uint8_t>(value);
+      px[1] = static_cast<std::uint8_t>(value);
+      px[2] = static_cast<std::uint8_t>(value);
+    }
+  }
+  document.add_pixel_layer("Checker", std::move(pixels));
+
+  patchy::ui::CanvasWidget canvas;
+  canvas.resize(180, 180);
+  canvas.set_document(&document);
+  canvas.set_zoom(0.25);
+  canvas.show();
+  QApplication::processEvents();
+
+  const auto preview = canvas.grab().toImage();
+  const auto top_left = canvas.widget_position_for_document_point(QPoint(0, 0));
+  const auto bottom_right = canvas.widget_position_for_document_point(QPoint(document.width(), document.height()));
+  const QRect target_rect(top_left, QSize(bottom_right.x() - top_left.x(), bottom_right.y() - top_left.y()));
+  const auto sample_rect = target_rect.adjusted(4, 4, -4, -4).intersected(preview.rect());
+  CHECK(!sample_rect.isEmpty());
+
+  int midtone_samples = 0;
+  int source_tone_samples = 0;
+  for (int y = sample_rect.top(); y <= sample_rect.bottom(); y += 3) {
+    for (int x = sample_rect.left(); x <= sample_rect.right(); x += 3) {
+      const auto color = preview.pixelColor(x, y);
+      const auto value = (color.red() + color.green() + color.blue()) / 3;
+      if (value >= 96 && value <= 160) {
+        ++midtone_samples;
+      }
+      if (value <= 24 || value >= 231) {
+        ++source_tone_samples;
+      }
+    }
+  }
+
+  CHECK(midtone_samples > 0);
+  CHECK(midtone_samples > source_tone_samples * 4);
+}
+
+void ui_stamp_and_gradient_flyouts_swap_tools() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+
+  auto* stamp_button = window.findChild<QToolButton*>(QStringLiteral("stampToolButton"));
+  CHECK(stamp_button != nullptr);
+  CHECK(stamp_button->menu() != nullptr);
+  CHECK(stamp_button->menu()->actions().size() == 2);
+  CHECK(stamp_button->defaultAction() == require_action(window, "toolCloneAction"));
+  require_action(window, "toolPatternStampAction")->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::PatternStamp);
+  CHECK(stamp_button->defaultAction() == require_action(window, "toolPatternStampAction"));
+
+  auto* gradient_button = window.findChild<QToolButton*>(QStringLiteral("gradientToolButton"));
+  CHECK(gradient_button != nullptr);
+  CHECK(gradient_button->menu() != nullptr);
+  CHECK(gradient_button->menu()->actions().size() == 2);
+  CHECK(gradient_button->defaultAction() == require_action(window, "toolGradientAction"));
+  require_action(window, "toolFillAction")->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::Fill);
+  CHECK(gradient_button->defaultAction() == require_action(window, "toolFillAction"));
+
+  auto* healing_button = window.findChild<QToolButton*>(QStringLiteral("healingToolButton"));
+  CHECK(healing_button != nullptr);
+  CHECK(healing_button->menu() != nullptr);
+  CHECK(healing_button->menu()->actions().size() == 3);
+  CHECK(healing_button->defaultAction() == require_action(window, "toolHealingBrushAction"));
+  require_action(window, "toolSpotHealingAction")->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::SpotHealing);
+  CHECK(healing_button->defaultAction() == require_action(window, "toolSpotHealingAction"));
+  require_action(window, "toolPatchAction")->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::PatchTool);
+  CHECK(healing_button->defaultAction() == require_action(window, "toolPatchAction"));
+
+  auto* pen_button = window.findChild<QToolButton*>(QStringLiteral("penToolButton"));
+  CHECK(pen_button != nullptr);
+  CHECK(pen_button->menu() != nullptr);
+  CHECK(pen_button->menu()->actions().size() == 4);
+  CHECK(pen_button->defaultAction() == require_action(window, "toolPenAction"));
+  require_action(window, "toolConvertPointAction")->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::ConvertPoint);
+  CHECK(pen_button->defaultAction() == require_action(window, "toolConvertPointAction"));
+
+  // Every flyout button carries the QSS corner-marker property, including the
+  // smudge/dodge buttons that historically lacked the indicator.
+  for (const auto* name : {"marqueeToolButton", "lassoToolButton", "wandToolButton", "gradientToolButton",
+                           "stampToolButton", "healingToolButton", "detailToolButton", "toneToolButton",
+                           "shapeToolButton", "pathSelectToolButton", "penToolButton"}) {
+    auto* button = window.findChild<QToolButton*>(QString::fromLatin1(name));
+    CHECK(button != nullptr);
+    CHECK(button->property("toolFlyout").toBool());
+  }
+}
+
+void ui_shape_flyout_and_zoom_tool_work() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* marquee_button = window.findChild<QToolButton*>(QStringLiteral("marqueeToolButton"));
+  auto* shape_button = window.findChild<QToolButton*>(QStringLiteral("shapeToolButton"));
+  auto* zoom_button = window.findChild<QToolButton*>(QStringLiteral("zoomToolButton"));
+  CHECK(marquee_button != nullptr);
+  CHECK(marquee_button->menu() != nullptr);
+  CHECK(shape_button != nullptr);
+  CHECK(shape_button->menu() != nullptr);
+  CHECK(zoom_button != nullptr);
+
+  require_action_by_text(window, QStringLiteral("Elliptical Marquee"))->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::EllipticalMarquee);
+  CHECK(marquee_button->defaultAction() == require_action_by_text(window, QStringLiteral("Elliptical Marquee")));
+
+  require_action_by_text(window, QStringLiteral("Ellipse"))->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::Ellipse);
+  CHECK(shape_button->defaultAction() == require_action_by_text(window, QStringLiteral("Ellipse")));
+
+  require_action_by_text(window, QStringLiteral("Zoom"))->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::Zoom);
+  canvas->set_zoom(0.25);
+  const auto before_zoom = canvas->zoom();
+  drag(*canvas, canvas->widget_position_for_document_point(QPoint(100, 100)),
+       canvas->widget_position_for_document_point(QPoint(420, 320)));
+  CHECK(canvas->zoom() > before_zoom);
+
+  canvas->set_zoom(2.0);
+  send_double_click(*zoom_button, zoom_button->rect().center());
+  CHECK(std::abs(canvas->zoom() - 1.0) < 0.001);
+  save_widget_artifact("ui_shape_flyout_zoom_tool", window);
+}
+
+void ui_tool_palette_icons_render_sheet() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+
+  struct ToolIconEntry {
+    const char* action_name;
+    const char* label;
+  };
+  const std::vector<ToolIconEntry> tools = {
+      {"toolMoveAction", "Move"},
+      {"toolMarqueeAction", "Marquee"},
+      {"toolEllipticalMarqueeAction", "Elliptical Marquee"},
+      {"toolLassoAction", "Lasso"},
+      {"toolMagneticLassoAction", "Magnetic Lasso"},
+      {"toolMagicWandAction", "Magic Wand"},
+      {"toolQuickSelectAction", "Quick Select"},
+      {"toolCropAction", "Crop"},
+      {"toolBrushAction", "Brush"},
+      {"toolCloneAction", "Clone"},
+      {"toolPatternStampAction", "Pattern Stamp"},
+      {"toolHealingBrushAction", "Healing Brush"},
+      {"toolSpotHealingAction", "Spot Healing"},
+      {"toolPatchAction", "Patch"},
+      {"toolSmudgeAction", "Smudge"},
+      {"toolMixerBrushAction", "Mixer Brush"},
+      {"toolDodgeAction", "Dodge"},
+      {"toolBurnAction", "Burn"},
+      {"toolSpongeAction", "Sponge"},
+      {"toolBlurAction", "Blur"},
+      {"toolSharpenAction", "Sharpen"},
+      {"toolEraserAction", "Eraser"},
+      {"toolGradientAction", "Gradient"},
+      {"toolFillAction", "Fill"},
+      {"toolLineAction", "Line"},
+      {"toolRectAction", "Rect"},
+      {"toolEllipseAction", "Ellipse"},
+      {"toolPenAction", "Pen"},
+      {"toolAddAnchorAction", "Add Anchor"},
+      {"toolDeleteAnchorAction", "Delete Anchor"},
+      {"toolConvertPointAction", "Convert Point"},
+      {"toolPathSelectAction", "Path Select"},
+      {"toolDirectSelectAction", "Direct Select"},
+      {"toolPolygonAction", "Polygon"},
+      {"toolCustomShapeAction", "Custom Shape"},
+      {"toolPickAction", "Pick"},
+      {"toolTypeAction", "Type"},
+      {"toolHandAction", "Hand"},
+      {"toolZoomAction", "Zoom"},
+  };
+
+  // The real button backgrounds from the app stylesheet: palette, hover, checked.
+  const std::array<QColor, 3> state_backgrounds = {QColor(0x53, 0x53, 0x53), QColor(0x4a, 0x4a, 0x4a),
+                                                   QColor(0x2f, 0x75, 0xbd)};
+
+  constexpr int kLabelWidth = 118;
+  constexpr int kSmallCell = 34;
+  constexpr int kLargeCell = 56;
+  constexpr int kRowHeight = 56;
+  const int sheet_width = kLabelWidth + kSmallCell * 4 + kLargeCell + 12;
+  const int sheet_height = kRowHeight * static_cast<int>(tools.size()) + 8;
+  QImage sheet(sheet_width, sheet_height, QImage::Format_RGB32);
+  sheet.fill(QColor(0x2b, 0x2b, 0x2b));
+  QPainter painter(&sheet);
+  painter.setFont(visual_test_font());
+
+  std::vector<QImage> normal_renders;
+  QImage gradient_render;
+  QStringList coverage_problems;
+  int y = 4;
+  for (const auto& tool : tools) {
+    auto* action = window.findChild<QAction*>(QString::fromLatin1(tool.action_name));
+    CHECK(action != nullptr);
+    const auto icon = action->icon();
+    CHECK(!icon.isNull());
+
+    // Tool icons come from SVG resources; a missing file or typo'd qrc alias renders EMPTY
+    // silently, so assert real pixel coverage of the 20px render the palette uses. The
+    // sparsest legitimate icon is the single-stroke Line tool at ~30 covered pixels.
+    const auto normal20 = icon.pixmap(QSize(20, 20)).toImage().convertToFormat(QImage::Format_ARGB32);
+    CHECK(normal20.width() == 20 && normal20.height() == 20);
+    int covered = 0;
+    int bright = 0;
+    for (int py = 0; py < normal20.height(); ++py) {
+      for (int px = 0; px < normal20.width(); ++px) {
+        const auto pixel = normal20.pixel(px, py);
+        if (qAlpha(pixel) > 60) {
+          ++covered;
+          if (qGray(pixel) > 140) {
+            ++bright;
+          }
+        }
+      }
+    }
+    if (covered <= 25 || bright <= 15) {
+      coverage_problems << QStringLiteral("%1: covered=%2 bright=%3")
+                               .arg(QString::fromLatin1(tool.label))
+                               .arg(covered)
+                               .arg(bright);
+    }
+    normal_renders.push_back(normal20);
+    if (QString::fromLatin1(tool.label) == QStringLiteral("Gradient")) {
+      gradient_render = normal20;
+    }
+
+    painter.setPen(QColor(0xdc, 0xe2, 0xeb));
+    painter.drawText(QRect(6, y, kLabelWidth - 10, kRowHeight - 8), Qt::AlignVCenter | Qt::AlignLeft,
+                     QString::fromLatin1(tool.label));
+    int x = kLabelWidth;
+    const auto draw_cell = [&painter](int cell_x, int cell_y, int cell_size, const QColor& background,
+                                      const QPixmap& pixmap) {
+      const QRect cell(cell_x, cell_y, cell_size, cell_size);
+      painter.fillRect(cell, background);
+      painter.drawPixmap(cell.x() + (cell.width() - pixmap.width()) / 2,
+                         cell.y() + (cell.height() - pixmap.height()) / 2, pixmap);
+    };
+    const auto small20 = icon.pixmap(QSize(20, 20));
+    for (const auto& background : state_backgrounds) {
+      draw_cell(x + 3, y + (kRowHeight - kSmallCell) / 2 + 3, kSmallCell - 6, background, small20);
+      x += kSmallCell;
+    }
+    draw_cell(x + 3, y + (kRowHeight - kSmallCell) / 2 + 3, kSmallCell - 6, state_backgrounds[0],
+              icon.pixmap(QSize(20, 20), QIcon::Disabled));
+    x += kSmallCell;
+    draw_cell(x + 5, y + (kRowHeight - kLargeCell) / 2 + 5, kLargeCell - 10, state_backgrounds[0],
+              icon.pixmap(QSize(40, 40)));
+    y += kRowHeight;
+  }
+  painter.end();
+
+  for (const auto& problem : coverage_problems) {
+    std::fprintf(stderr, "tool icon coverage problem: %s\n", qPrintable(problem));
+  }
+  CHECK(coverage_problems.isEmpty());
+
+  // Every tool must render distinctly (catches copy-paste mistakes in the qrc aliases).
+  for (std::size_t i = 0; i < normal_renders.size(); ++i) {
+    for (std::size_t j = i + 1; j < normal_renders.size(); ++j) {
+      CHECK(normal_renders[i] != normal_renders[j]);
+    }
+  }
+
+  // The Gradient icon is the one SVG relying on linearGradient support: its swatch must
+  // interpolate from the neutral left edge to a clearly blue right edge.
+  CHECK(!gradient_render.isNull());
+  const auto gradient_left = gradient_render.pixel(5, 10);
+  const auto gradient_right = gradient_render.pixel(15, 10);
+  CHECK(qAlpha(gradient_left) > 200);
+  CHECK(qAlpha(gradient_right) > 200);
+  CHECK(qBlue(gradient_right) - qRed(gradient_right) > 60);
+  CHECK(qBlue(gradient_left) - qRed(gradient_left) < 40);
+
+  ensure_artifact_dir();
+  CHECK(sheet.save(QStringLiteral("test-artifacts/ui_tool_palette_icons_sheet.png")));
+
+  auto* tool_palette = window.findChild<QToolBar*>(QStringLiteral("toolPalette"));
+  CHECK(tool_palette != nullptr);
+  save_widget_artifact("ui_tool_palette", *tool_palette);
+}
+
+void ui_filled_shape_preview_clears_after_commit() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->set_tool(patchy::ui::CanvasTool::Ellipse);
+  // This test exercises the legacy raster commit; Shape mode (the default)
+  // would route the drag to a new shape layer instead.
+  canvas->set_vector_tool_mode(patchy::ui::VectorToolMode::Pixels);
+  canvas->set_primary_color(Qt::black);
+  canvas->set_brush_size(96);
+  canvas->set_fill_shapes(true);
+
+  drag(*canvas, canvas->widget_position_for_document_point(QPoint(170, 170)),
+       canvas->widget_position_for_document_point(QPoint(370, 310)));
+  QApplication::processEvents();
+
+  const auto outside_final_shape = canvas_pixel(*canvas, QPoint(170, 125));
+  CHECK(color_close(outside_final_shape, Qt::white, 10));
+  save_widget_artifact("ui_filled_shape_preview_cleanup", *canvas);
+
+  const auto immediate = canvas->grab().toImage();
+  canvas->document_changed();
+  QApplication::processEvents();
+  const auto repainted = canvas->grab().toImage();
+  CHECK(immediate.size() == repainted.size());
+  CHECK(immediate.pixelColor(canvas->widget_position_for_document_point(QPoint(170, 125))) ==
+        repainted.pixelColor(canvas->widget_position_for_document_point(QPoint(170, 125))));
+}
+
+void ui_options_bar_tracks_active_tool() {
+  SettingsValueRestorer saved_gradient_method(QStringLiteral("tools/gradientMethod"));
+  SettingsValueRestorer saved_gradient_reverse(QStringLiteral("tools/gradientReverse"));
+  SettingsValueRestorer saved_gradient_opacity(QStringLiteral("tools/gradientOpacity"));
+  SettingsValueRestorer saved_gradient_use_custom(QStringLiteral("tools/gradientUseCustomStops"));
+  SettingsValueRestorer saved_gradient_stops(QStringLiteral("tools/gradientStops"));
+  SettingsValueRestorer saved_text_smoothing(QStringLiteral("tools/textSmoothing"));
+  SettingsValueRestorer saved_show_transform_controls(QStringLiteral("tools/showTransformControls"));
+  auto settings = patchy::ui::app_settings();
+  settings.remove(QStringLiteral("tools/showTransformControls"));
+  settings.sync();
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  auto* move_auto_select = window.findChild<QCheckBox*>(QStringLiteral("moveAutoSelectCheck"));
+  auto* move_show_transform_controls = window.findChild<QCheckBox*>(QStringLiteral("moveShowTransformControlsCheck"));
+  auto* text_font = window.findChild<QFontComboBox*>(QStringLiteral("textFontCombo"));
+  auto* text_size = window.findChild<QDoubleSpinBox*>(QStringLiteral("textSizeSpin"));
+  auto* text_style = window.findChild<QComboBox*>(QStringLiteral("textStyleCombo"));
+  auto* text_smoothing = window.findChild<QComboBox*>(QStringLiteral("textSmoothingCombo"));
+  auto* text_color = window.findChild<QPushButton*>(QStringLiteral("textColorButton"));
+  auto* brush_size = window.findChild<QSpinBox*>(QStringLiteral("brushSizeSpin"));
+  auto* brush_size_slider = window.findChild<QSlider*>(QStringLiteral("brushSizeSlider"));
+  auto* brush_opacity = window.findChild<QSpinBox*>(QStringLiteral("brushOpacitySpin"));
+  auto* brush_opacity_slider = window.findChild<QSlider*>(QStringLiteral("brushOpacitySlider"));
+  auto* brush_softness = window.findChild<QSpinBox*>(QStringLiteral("brushSoftnessSpin"));
+  auto* brush_softness_slider = window.findChild<QSlider*>(QStringLiteral("brushSoftnessSlider"));
+  auto* gradient_method = window.findChild<QComboBox*>(QStringLiteral("gradientMethodCombo"));
+  auto* gradient_opacity = window.findChild<QSpinBox*>(QStringLiteral("gradientOpacitySpin"));
+  auto* gradient_opacity_slider = window.findChild<QSlider*>(QStringLiteral("gradientOpacitySlider"));
+  auto* gradient_reverse = window.findChild<QCheckBox*>(QStringLiteral("gradientReverseCheck"));
+  auto* gradient_preview = window.findChild<QPushButton*>(QStringLiteral("gradientPreviewButton"));
+  auto* gradient_presets = window.findChild<QPushButton*>(QStringLiteral("gradientPresetsButton"));
+  auto* gradient_edit_stops = window.findChild<QPushButton*>(QStringLiteral("gradientEditStopsButton"));
+  auto* clone_aligned = window.findChild<QCheckBox*>(QStringLiteral("cloneAlignedCheck"));
+  auto* healing_diffusion = window.findChild<QSpinBox*>(QStringLiteral("healingDiffusionSpin"));
+  auto* local_strength = window.findChild<QSpinBox*>(QStringLiteral("localAdjustmentStrengthSpin"));
+  auto* local_range = window.findChild<QComboBox*>(QStringLiteral("localToneRangeCombo"));
+  auto* protect_tones = window.findChild<QCheckBox*>(QStringLiteral("localProtectTonesCheck"));
+  auto* sponge_mode = window.findChild<QComboBox*>(QStringLiteral("spongeModeCombo"));
+  auto* sponge_vibrance = window.findChild<QCheckBox*>(QStringLiteral("spongeVibranceCheck"));
+  auto* wand_tolerance = window.findChild<QSpinBox*>(QStringLiteral("wandToleranceSpin"));
+  auto* wand_contiguous = window.findChild<QCheckBox*>(QStringLiteral("wandContiguousCheck"));
+  auto* wand_sample_all_layers = window.findChild<QCheckBox*>(QStringLiteral("wandSampleAllLayersCheck"));
+  auto* feather_group = window.findChild<QWidget*>(QStringLiteral("selectionFeatherGroup"));
+  auto* anti_alias = window.findChild<QCheckBox*>(QStringLiteral("selectionAntiAliasCheck"));
+  CHECK(move_auto_select != nullptr);
+  CHECK(move_show_transform_controls != nullptr);
+  CHECK(text_font != nullptr);
+  CHECK(text_size != nullptr);
+  CHECK(text_size->buttonSymbols() == QAbstractSpinBox::NoButtons);
+  CHECK(text_size->minimum() <= 0.01);
+  CHECK(text_style != nullptr);
+  CHECK(text_smoothing != nullptr);
+  CHECK(text_color != nullptr);
+  CHECK(brush_size != nullptr);
+  CHECK(brush_size_slider != nullptr);
+  CHECK(brush_opacity != nullptr);
+  CHECK(brush_opacity_slider != nullptr);
+  CHECK(brush_softness != nullptr);
+  CHECK(brush_softness_slider != nullptr);
+  CHECK(gradient_method != nullptr);
+  CHECK(gradient_opacity != nullptr);
+  CHECK(gradient_opacity_slider != nullptr);
+  CHECK(gradient_reverse != nullptr);
+  CHECK(gradient_preview != nullptr);
+  CHECK(gradient_presets != nullptr);
+  CHECK(gradient_edit_stops != nullptr);
+  CHECK(clone_aligned != nullptr);
+  CHECK(healing_diffusion != nullptr);
+  CHECK(local_strength != nullptr);
+  CHECK(local_range != nullptr);
+  CHECK(protect_tones != nullptr);
+  CHECK(sponge_mode != nullptr);
+  CHECK(sponge_vibrance != nullptr);
+  CHECK(wand_tolerance != nullptr);
+  CHECK(wand_contiguous != nullptr);
+  CHECK(wand_sample_all_layers != nullptr);
+  CHECK(feather_group != nullptr);
+  CHECK(anti_alias != nullptr);
+  CHECK(anti_alias->isChecked());
+  CHECK(wand_contiguous->isChecked());
+  CHECK(!wand_sample_all_layers->isChecked());
+
+  CHECK(brush_size->isVisible());
+  CHECK(brush_size_slider->isVisible());
+  CHECK(brush_opacity->isVisible());
+  CHECK(brush_opacity_slider->isVisible());
+  CHECK(brush_softness->isVisible());
+  CHECK(brush_softness_slider->isVisible());
+  CHECK(!clone_aligned->isVisible());
+  CHECK(!healing_diffusion->isVisible());
+  CHECK(!local_strength->isVisible());
+  CHECK(!local_range->isVisible());
+  CHECK(!protect_tones->isVisible());
+  CHECK(!sponge_mode->isVisible());
+  CHECK(!sponge_vibrance->isVisible());
+  CHECK(!gradient_method->isVisible());
+  CHECK(!gradient_opacity->isVisible());
+  CHECK(!gradient_reverse->isVisible());
+  CHECK(!gradient_presets->isVisible());
+  CHECK(!gradient_edit_stops->isVisible());
+  CHECK(!move_auto_select->isVisible());
+  CHECK(!move_show_transform_controls->isVisible());
+  CHECK(!wand_contiguous->isVisible());
+  CHECK(!wand_sample_all_layers->isVisible());
+  CHECK(!text_font->isVisible());
+  CHECK(!text_color->isVisible());
+
+  require_action_by_text(window, QStringLiteral("Move"))->trigger();
+  QApplication::processEvents();
+  CHECK(move_auto_select->isVisible());
+  CHECK(move_show_transform_controls->isVisible());
+  CHECK(move_show_transform_controls->isChecked());
+  CHECK(!brush_size->isVisible());
+  CHECK(!brush_size_slider->isVisible());
+  CHECK(!brush_opacity->isVisible());
+  CHECK(!brush_opacity_slider->isVisible());
+  CHECK(!brush_softness->isVisible());
+  CHECK(!brush_softness_slider->isVisible());
+  CHECK(!clone_aligned->isVisible());
+  CHECK(!text_font->isVisible());
+  move_auto_select->setChecked(false);
+  QApplication::processEvents();
+  CHECK(!canvas->auto_select_layer());
+  move_auto_select->setChecked(true);
+  QApplication::processEvents();
+  CHECK(move_auto_select->isChecked());
+  CHECK(canvas->auto_select_layer());
+  move_show_transform_controls->setChecked(false);
+  QApplication::processEvents();
+  CHECK(!canvas->show_transform_controls());
+  move_show_transform_controls->setChecked(true);
+  QApplication::processEvents();
+  CHECK(move_show_transform_controls->isChecked());
+  CHECK(canvas->show_transform_controls());
+  save_widget_artifact("ui_tool_options_move", window);
+
+  require_action_by_text(window, QStringLiteral("Type"))->trigger();
+  QApplication::processEvents();
+  CHECK(text_font->isVisible());
+  CHECK(text_size->isVisible());
+  CHECK(text_style->isVisible());
+  CHECK(text_color->isVisible());
+  CHECK(!move_auto_select->isVisible());
+  CHECK(!brush_size->isVisible());
+  CHECK(!brush_opacity->isVisible());
+  CHECK(!brush_softness->isVisible());
+  CHECK(!clone_aligned->isVisible());
+  text_size->setValue(0.01);
+  CHECK(std::abs(text_size->value() - 0.01) < 0.001);
+  text_size->setValue(text_points_for_pixels(36));
+  save_widget_artifact("ui_tool_options_text", window);
+
+  require_action_by_text(window, QStringLiteral("Magic Wand"))->trigger();
+  QApplication::processEvents();
+  CHECK(wand_tolerance->isVisible());
+  CHECK(wand_contiguous->isVisible());
+  CHECK(wand_sample_all_layers->isVisible());
+  CHECK(feather_group->isVisible());
+  CHECK(anti_alias->isVisible());
+  CHECK(!text_font->isVisible());
+  CHECK(!text_color->isVisible());
+  wand_contiguous->setChecked(false);
+  wand_sample_all_layers->setChecked(true);
+  QApplication::processEvents();
+  CHECK(!canvas->wand_contiguous());
+  CHECK(canvas->wand_sample_all_layers());
+  wand_contiguous->setChecked(true);
+  wand_sample_all_layers->setChecked(false);
+  QApplication::processEvents();
+  CHECK(canvas->wand_contiguous());
+  CHECK(!canvas->wand_sample_all_layers());
+
+  require_action_by_text(window, QStringLiteral("Clone"))->trigger();
+  QApplication::processEvents();
+  CHECK(brush_size->isVisible());
+  CHECK(brush_size_slider->isVisible());
+  CHECK(brush_opacity->isVisible());
+  CHECK(brush_opacity_slider->isVisible());
+  CHECK(brush_softness->isVisible());
+  CHECK(brush_softness_slider->isVisible());
+  CHECK(clone_aligned->isVisible());
+  CHECK(clone_aligned->isChecked());
+  clone_aligned->setChecked(false);
+  QApplication::processEvents();
+  CHECK(!canvas->clone_aligned());
+  clone_aligned->setChecked(true);
+  QApplication::processEvents();
+  CHECK(canvas->clone_aligned());
+  CHECK(!wand_tolerance->isVisible());
+  CHECK(!wand_contiguous->isVisible());
+  CHECK(!wand_sample_all_layers->isVisible());
+
+  require_action_by_text(window, QStringLiteral("Healing Brush"))->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::Healing);
+  CHECK(brush_size->isVisible());
+  CHECK(brush_opacity->isVisible());
+  CHECK(brush_softness->isVisible());
+  CHECK(clone_aligned->isVisible());
+  CHECK(healing_diffusion->isVisible());
+  healing_diffusion->setValue(3);
+  QApplication::processEvents();
+  CHECK(canvas->healing_diffusion() == 3);
+
+  require_action_by_text(window, QStringLiteral("Smudge"))->trigger();
+  QApplication::processEvents();
+  CHECK(brush_size->isVisible());
+  CHECK(brush_opacity->isVisible());
+  CHECK(brush_softness->isVisible());
+  CHECK(!clone_aligned->isVisible());
+  CHECK(!healing_diffusion->isVisible());
+
+  require_action(window, "toolDodgeAction")->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::Dodge);
+  CHECK(brush_size->isVisible());
+  CHECK(!brush_opacity->isVisible());
+  CHECK(brush_softness->isVisible());
+  CHECK(local_strength->isVisible());
+  CHECK(local_range->isVisible());
+  CHECK(protect_tones->isVisible());
+  CHECK(!sponge_mode->isVisible());
+  CHECK(!sponge_vibrance->isVisible());
+  local_strength->setValue(62);
+  local_range->setCurrentIndex(local_range->findData(
+      static_cast<int>(patchy::ui::CanvasWidget::LocalToneRange::Highlights)));
+  protect_tones->setChecked(false);
+  QApplication::processEvents();
+  CHECK(canvas->local_adjustment_strength() == 62);
+  CHECK(canvas->local_tone_range() == patchy::ui::CanvasWidget::LocalToneRange::Highlights);
+  CHECK(!canvas->local_protect_tones());
+
+  require_action(window, "toolSpongeAction")->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::Sponge);
+  CHECK(local_strength->isVisible());
+  CHECK(!local_range->isVisible());
+  CHECK(!protect_tones->isVisible());
+  CHECK(sponge_mode->isVisible());
+  CHECK(sponge_vibrance->isVisible());
+  sponge_mode->setCurrentIndex(
+      sponge_mode->findData(static_cast<int>(patchy::ui::CanvasWidget::SpongeMode::Saturate)));
+  sponge_vibrance->setChecked(false);
+  QApplication::processEvents();
+  CHECK(canvas->sponge_mode() == patchy::ui::CanvasWidget::SpongeMode::Saturate);
+  CHECK(!canvas->sponge_vibrance());
+
+  require_action(window, "toolBlurAction")->trigger();
+  QApplication::processEvents();
+  CHECK(canvas->tool() == patchy::ui::CanvasTool::BlurBrush);
+  CHECK(local_strength->isVisible());
+  CHECK(!local_range->isVisible());
+  CHECK(!protect_tones->isVisible());
+  CHECK(!sponge_mode->isVisible());
+  CHECK(!sponge_vibrance->isVisible());
+
+  require_action_by_text(window, QStringLiteral("Gradient"))->trigger();
+  QApplication::processEvents();
+  CHECK(gradient_method->isVisible());
+  CHECK(gradient_opacity->isVisible());
+  CHECK(gradient_opacity_slider->isVisible());
+  CHECK(gradient_reverse->isVisible());
+  CHECK(gradient_preview->isVisible());
+  CHECK(gradient_presets->isVisible());
+  CHECK(gradient_edit_stops->isVisible());
+  CHECK(!brush_size->isVisible());
+  CHECK(!brush_opacity->isVisible());
+  CHECK(!brush_softness->isVisible());
+  const auto radial_index = gradient_method->findText(QStringLiteral("Radial"));
+  CHECK(radial_index >= 0);
+  gradient_method->setCurrentIndex(radial_index);
+  gradient_opacity_slider->setValue(55);
+  gradient_reverse->setChecked(true);
+  QApplication::processEvents();
+  CHECK(canvas->gradient_method() == patchy::GradientMethod::Radial);
+  CHECK(canvas->gradient_opacity() == 55);
+  CHECK(canvas->gradient_reverse());
+
+  QTimer::singleShot(0, [] {
+    auto* dialog = find_top_level_dialog(QStringLiteral("gradientStopsDialog"));
+    CHECK(dialog != nullptr);
+    auto* preview = dialog->findChild<QWidget*>(QStringLiteral("gradientStopsPreview"));
+    auto* table = dialog->findChild<QTableWidget*>(QStringLiteral("gradientStopsTable"));
+    auto* add_stop = dialog->findChild<QPushButton*>(QStringLiteral("gradientAddStopButton"));
+    auto* choose_color = dialog->findChild<QPushButton*>(QStringLiteral("gradientChooseStopColorButton"));
+    CHECK(preview != nullptr);
+    CHECK(table != nullptr);
+    CHECK(add_stop != nullptr);
+    CHECK(choose_color != nullptr);
+    CHECK(table->rowCount() == 2);
+
+    constexpr int gradient_gutter = 10;
+    const auto handle_x = [preview](double location) {
+      constexpr int gutter = 10;
+      const int track_max = std::max(1, preview->width() - gutter * 2 - 2);
+      return gutter + static_cast<int>(std::lround(std::clamp(location, 0.0, 1.0) * track_max));
+    };
+    const int bar_right_x = handle_x(1.0);
+    const auto preview_image = preview->grab().toImage();
+    CHECK(preview_image.rect().contains(QPoint(bar_right_x, 16)));
+    CHECK(preview_image.pixelColor(bar_right_x, 16).value() > 180);
+    int visible_left_handle_pixels = 0;
+    int visible_right_handle_pixels = 0;
+    for (int y = 44; y < preview_image.height(); ++y) {
+      for (int x = 0; x <= gradient_gutter + 12 && x < preview_image.width(); ++x) {
+        const auto color = preview_image.pixelColor(x, y);
+        if (color.blue() > 120 || color.value() < 16) {
+          ++visible_left_handle_pixels;
+        }
+      }
+      for (int x = std::max(0, preview_image.width() - gradient_gutter - 13); x < preview_image.width(); ++x) {
+        if (preview_image.pixelColor(x, y).value() > 180) {
+          ++visible_right_handle_pixels;
+        }
+      }
+    }
+    CHECK(visible_left_handle_pixels > 12);
+    CHECK(visible_right_handle_pixels > 12);
+
+    const int handle_y = 48;
+    const int x10 = handle_x(0.10);
+    const int x50 = handle_x(0.50);
+    send_mouse(*preview, QEvent::MouseMove, QPoint(x10, handle_y), Qt::NoButton, Qt::NoButton);
+    CHECK(preview->cursor().shape() == Qt::CrossCursor);
+    send_mouse(*preview, QEvent::MouseButtonPress, QPoint(x10, handle_y), Qt::LeftButton, Qt::LeftButton);
+    CHECK(table->rowCount() == 3);
+    CHECK(table->currentRow() == 2);
+    CHECK(table->item(2, 0)->text() == QStringLiteral("10"));
+    send_mouse(*preview, QEvent::MouseMove, QPoint(x50, handle_y), Qt::NoButton, Qt::LeftButton);
+    send_mouse(*preview, QEvent::MouseButtonRelease, QPoint(x50, handle_y), Qt::LeftButton, Qt::NoButton);
+    CHECK(table->item(2, 0)->text() == QStringLiteral("50"));
+
+    send_mouse(*preview, QEvent::MouseButtonPress, QPoint(bar_right_x, 16), Qt::LeftButton, Qt::LeftButton);
+    send_mouse(*preview, QEvent::MouseButtonRelease, QPoint(bar_right_x, 16), Qt::LeftButton, Qt::NoButton);
+    const QColor sampled_color(table->item(2, 1)->text());
+    CHECK(sampled_color.isValid());
+    CHECK(sampled_color.value() > 180);
+
+    add_stop->click();
+    CHECK(table->rowCount() == 4);
+    const int x60 = handle_x(0.60);
+    send_mouse(*preview, QEvent::MouseButtonPress, QPoint(x60, handle_y), Qt::LeftButton, Qt::LeftButton);
+    send_mouse(*preview, QEvent::MouseMove, QPoint(x60, preview->height() + 4), Qt::NoButton, Qt::LeftButton);
+    CHECK(table->rowCount() == 4);
+    send_mouse(*preview, QEvent::MouseMove, QPoint(x60, preview->height() + 16), Qt::NoButton, Qt::LeftButton);
+    CHECK(table->rowCount() == 4);
+    send_mouse(*preview, QEvent::MouseMove, QPoint(x50, handle_y), Qt::NoButton, Qt::LeftButton);
+    CHECK(table->rowCount() == 4);
+    CHECK(table->item(3, 0)->text() == QStringLiteral("50"));
+    send_mouse(*preview, QEvent::MouseButtonRelease, QPoint(x50, handle_y), Qt::LeftButton, Qt::NoButton);
+    CHECK(table->rowCount() == 4);
+
+    send_mouse(*preview, QEvent::MouseButtonPress, QPoint(x50, handle_y), Qt::LeftButton, Qt::LeftButton);
+    send_mouse(*preview, QEvent::MouseMove, QPoint(x50, 8), Qt::NoButton, Qt::LeftButton);
+    CHECK(table->rowCount() == 4);
+    send_mouse(*preview, QEvent::MouseButtonRelease, QPoint(x50, 8), Qt::LeftButton, Qt::NoButton);
+    CHECK(table->rowCount() == 3);
+
+    table->item(2, 0)->setText(QStringLiteral("50"));
+    table->item(2, 1)->setText(QStringLiteral("#00FF00"));
+    table->item(2, 2)->setText(QStringLiteral("25"));
+    table->setCurrentCell(2, 1);
+
+    const QColor original_stop_color(table->item(2, 1)->text());
+    bool saw_live_stop_picker = false;
+    QTimer::singleShot(0, [&] {
+      auto* color_dialog = qobject_cast<QDialog*>(find_top_level_dialog(QStringLiteral("patchyColorDialog")));
+      CHECK(color_dialog != nullptr);
+      auto* picker = color_dialog->findChild<patchy::ui::PatchyColorPicker*>(
+          QStringLiteral("patchyAdvancedColorPicker"));
+      CHECK(picker != nullptr);
+      picker->setCurrentColor(QColor(12, 34, 56));
+      QApplication::processEvents();
+      CHECK(table->item(2, 1)->text() == QStringLiteral("#0C2238"));
+      saw_live_stop_picker = true;
+      color_dialog->reject();
+    });
+    choose_color->click();
+    CHECK(saw_live_stop_picker);
+    CHECK(table->item(2, 1)->text() == original_stop_color.name(QColor::HexRgb).toUpper());
+
+    dialog->accept();
+  });
+  gradient_edit_stops->click();
+  QApplication::processEvents();
+  CHECK(canvas->gradient_stops().has_value());
+  CHECK(canvas->gradient_stops()->size() == 3);
+  CHECK(canvas->gradient_stops()->at(1).color.g == 255);
+  CHECK(canvas->gradient_stops()->at(1).color.a >= 63);
+  CHECK(canvas->gradient_stops()->at(1).color.a <= 64);
+}
+
+void ui_gradient_toolbar_preset_popup_applies_stops() {
+  SettingsValueRestorer saved_gradient_method(QStringLiteral("tools/gradientMethod"));
+  SettingsValueRestorer saved_gradient_reverse(QStringLiteral("tools/gradientReverse"));
+  SettingsValueRestorer saved_gradient_opacity(QStringLiteral("tools/gradientOpacity"));
+  SettingsValueRestorer saved_gradient_use_custom(QStringLiteral("tools/gradientUseCustomStops"));
+  SettingsValueRestorer saved_gradient_stops(QStringLiteral("tools/gradientStops"));
+  {
+    auto settings = patchy::ui::app_settings();
+    settings.remove(QStringLiteral("tools/gradientMethod"));
+    settings.remove(QStringLiteral("tools/gradientReverse"));
+    settings.remove(QStringLiteral("tools/gradientOpacity"));
+    settings.remove(QStringLiteral("tools/gradientUseCustomStops"));
+    settings.remove(QStringLiteral("tools/gradientStops"));
+    settings.sync();
+  }
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  require_action_by_text(window, QStringLiteral("Gradient"))->trigger();
+  QApplication::processEvents();
+  CHECK(!canvas->gradient_stops().has_value());
+
+  auto& library = window.gradient_library();
+  library.restore_default_gradients();  // suite-order independence: repair any deleted builtins
+  CHECK(!library.entries().empty());
+  QString sepia_id;
+  QString cyanotype_id;
+  for (const auto& entry : library.entries()) {
+    if (entry.name == QStringLiteral("Sepia Wash")) {
+      sepia_id = entry.storage_id;
+    } else if (entry.name == QStringLiteral("Cyanotype")) {
+      cyanotype_id = entry.storage_id;
+    }
+  }
+  CHECK(!sepia_id.isEmpty());
+  CHECK(!cyanotype_id.isEmpty());
+  const auto find_item = [](QTreeWidget* tree, const QString& storage_id) -> QTreeWidgetItem* {
+    for (QTreeWidgetItemIterator it(tree); *it != nullptr; ++it) {
+      if ((*it)->data(0, Qt::UserRole).toString() == storage_id) {
+        return *it;
+      }
+    }
+    return nullptr;
+  };
+
+  auto* presets_button = window.findChild<QPushButton*>(QStringLiteral("gradientPresetsButton"));
+  CHECK(presets_button != nullptr);
+  CHECK(presets_button->isVisible());
+  presets_button->click();
+  QApplication::processEvents();
+  QPointer<QFrame> popup = presets_button->findChild<QFrame*>(QStringLiteral("gradientPresetsButtonPopup"));
+  CHECK(popup != nullptr);
+  CHECK(popup->isVisible());
+  auto* tree = popup->findChild<QTreeWidget*>(QStringLiteral("gradientPresetsButtonTree"));
+  CHECK(tree != nullptr);
+  auto* sepia_item = find_item(tree, sepia_id);
+  CHECK(sepia_item != nullptr);
+  tree->scrollToItem(sepia_item);
+  QApplication::processEvents();
+  const auto sepia_rect = tree->visualItemRect(sepia_item);
+  CHECK(sepia_rect.isValid());
+  QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier, sepia_rect.center());
+  QApplication::processEvents();
+  CHECK(popup == nullptr);  // selecting a leaf closes the WA_DeleteOnClose popup
+
+  // Sepia Wash flattens to 33 sampled stops with exact endpoint colors.
+  CHECK(canvas->gradient_stops().has_value());
+  CHECK(canvas->gradient_stops()->size() == 33);
+  const auto applied = *canvas->gradient_stops();
+  CHECK(applied.front().color.r == 0x2b);
+  CHECK(applied.front().color.g == 0x1b);
+  CHECK(applied.front().color.b == 0x12);
+  CHECK(applied.front().color.a == 255);
+  CHECK(applied.back().color.r == 0xf1);
+  CHECK(applied.back().color.g == 0xdf);
+  CHECK(applied.back().color.b == 0xc0);
+  CHECK(window.statusBar()->currentMessage().contains(QStringLiteral("Sepia Wash")));
+  auto* gradient_preview = window.findChild<QPushButton*>(QStringLiteral("gradientPreviewButton"));
+  CHECK(gradient_preview != nullptr);
+  CHECK(gradient_preview->styleSheet().contains(QStringLiteral("rgba(241, 223, 192, 255)")));
+
+  // The Edit Stops dialog's Preset... button opens the same quick popup; a
+  // rejected dialog discards the picked preset.
+  bool checked_dialog_popup = false;
+  QTimer::singleShot(0, [&] {
+    auto* dialog = find_top_level_dialog(QStringLiteral("gradientStopsDialog"));
+    CHECK(dialog != nullptr);
+    auto* table = dialog->findChild<QTableWidget*>(QStringLiteral("gradientStopsTable"));
+    auto* preset_button = dialog->findChild<QPushButton*>(QStringLiteral("gradientPresetButton"));
+    CHECK(table != nullptr);
+    CHECK(preset_button != nullptr);
+    CHECK(table->rowCount() == 33);
+    preset_button->click();
+    QApplication::processEvents();
+    QPointer<QFrame> dialog_popup =
+        preset_button->findChild<QFrame*>(QStringLiteral("gradientPresetButtonPopup"));
+    CHECK(dialog_popup != nullptr);
+    CHECK(dialog_popup->isVisible());
+    auto* dialog_tree = dialog_popup->findChild<QTreeWidget*>(QStringLiteral("gradientPresetButtonTree"));
+    CHECK(dialog_tree != nullptr);
+    auto* cyanotype_item = find_item(dialog_tree, cyanotype_id);
+    CHECK(cyanotype_item != nullptr);
+    dialog_tree->scrollToItem(cyanotype_item);
+    QApplication::processEvents();
+    const auto cyanotype_rect = dialog_tree->visualItemRect(cyanotype_item);
+    CHECK(cyanotype_rect.isValid());
+    QTest::mouseClick(dialog_tree->viewport(), Qt::LeftButton, Qt::NoModifier, cyanotype_rect.center());
+    QApplication::processEvents();
+    CHECK(table->rowCount() == 33);
+    CHECK(table->item(0, 1)->text() == QStringLiteral("#081C33"));
+    checked_dialog_popup = true;
+    dialog->reject();
+  });
+  auto* gradient_edit_stops = window.findChild<QPushButton*>(QStringLiteral("gradientEditStopsButton"));
+  CHECK(gradient_edit_stops != nullptr);
+  gradient_edit_stops->click();
+  QApplication::processEvents();
+  CHECK(checked_dialog_popup);
+  CHECK(canvas->gradient_stops().has_value());
+  CHECK(canvas->gradient_stops()->size() == 33);
+  CHECK(canvas->gradient_stops()->front().color.r == 0x2b);
+}
+
+void ui_right_docks_collapse_layers_show_metadata_and_info_updates() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->set_zoom(1.0);
+  QApplication::processEvents();
+  auto* layer_list = window.findChild<QListWidget*>(QStringLiteral("layerList"));
+  auto* info = window.findChild<QLabel*>(QStringLiteral("canvasInfoLabel"));
+  auto* document_info = window.findChild<QLabel*>(QStringLiteral("documentInfoLabel"));
+  auto* active_layer_info = window.findChild<QLabel*>(QStringLiteral("activeLayerInfoLabel"));
+  auto* active_layer_geometry = window.findChild<QLabel*>(QStringLiteral("activeLayerGeometryLabel"));
+  auto* active_layer_mask = window.findChild<QLabel*>(QStringLiteral("activeLayerMaskLabel"));
+  auto* active_layer_adjustment = window.findChild<QLabel*>(QStringLiteral("activeLayerAdjustmentLabel"));
+  auto* active_layer_text = window.findChild<QLabel*>(QStringLiteral("activeLayerTextLabel"));
+  auto* active_tool_info = window.findChild<QLabel*>(QStringLiteral("activeToolInfoLabel"));
+  auto* opacity_spin = window.findChild<QSpinBox*>(QStringLiteral("layerOpacitySpin"));
+  CHECK(layer_list != nullptr);
+  CHECK(info != nullptr);
+  CHECK(document_info != nullptr);
+  CHECK(active_layer_info != nullptr);
+  CHECK(active_layer_geometry != nullptr);
+  CHECK(active_layer_mask != nullptr);
+  CHECK(active_layer_adjustment != nullptr);
+  CHECK(active_layer_text != nullptr);
+  CHECK(active_tool_info != nullptr);
+  CHECK(opacity_spin != nullptr);
+  CHECK(opacity_spin->buttonSymbols() == QAbstractSpinBox::NoButtons);
+  CHECK(document_info->text().contains(QStringLiteral("Document")));
+  CHECK(document_info->text().contains(QStringLiteral("1024 x 768 px")));
+  CHECK(active_layer_info->text().contains(QStringLiteral("Paint Layer")));
+  CHECK(active_layer_info->text().contains(QStringLiteral("Pixel Layer")));
+  CHECK(active_layer_geometry->text().contains(QStringLiteral("Bounds:")));
+  CHECK(!active_layer_mask->isVisible());
+  CHECK(!active_layer_adjustment->isVisible());
+  CHECK(!active_layer_text->isVisible());
+  CHECK(active_tool_info->text().contains(QStringLiteral("Brush")));
+  auto* layers_dock = window.findChild<QDockWidget*>(QStringLiteral("layersDock"));
+  auto* history_dock = window.findChild<QDockWidget*>(QStringLiteral("historyDock"));
+  auto* properties_dock = window.findChild<QDockWidget*>(QStringLiteral("propertiesDock"));
+  auto* history_list = window.findChild<QListWidget*>(QStringLiteral("historyList"));
+  auto* history_toggle = window.findChild<QToolButton*>(QStringLiteral("historyDockCollapseButton"));
+  auto* properties_toggle = window.findChild<QToolButton*>(QStringLiteral("propertiesDockCollapseButton"));
+  auto* info_toggle = window.findChild<QToolButton*>(QStringLiteral("infoDockCollapseButton"));
+  CHECK(layers_dock != nullptr);
+  CHECK(history_dock != nullptr);
+  CHECK(properties_dock != nullptr);
+  CHECK(history_list != nullptr);
+  CHECK(layers_dock->minimumWidth() >= 280);
+  CHECK(layers_dock->minimumHeight() >= 300);
+  CHECK(layer_list->minimumHeight() >= 120);
+  CHECK(properties_dock->maximumHeight() <= 240);
+  CHECK(properties_dock->height() <= 240);
+  CHECK(window.minimumSizeHint().height() <= 780);
+  CHECK(layer_list->contextMenuPolicy() == Qt::CustomContextMenu);
+  const auto layer_action_buttons = window.findChildren<QPushButton*>();
+  int visible_layer_action_buttons = 0;
+  for (const auto* button : layer_action_buttons) {
+    if (button->property("layerActionButton").toBool()) {
+      ++visible_layer_action_buttons;
+      CHECK(button->minimumWidth() >= 40);
+      CHECK(button->minimumHeight() >= 34);
+      CHECK(button->iconSize().width() >= 24);
+      CHECK(button->iconSize().height() >= 24);
+    }
+  }
+  // add, folder, duplicate, rename, animation preview, delete (the adjustment
+  // button is a QToolButton and is not counted here).
+  CHECK(visible_layer_action_buttons == 6);
+  CHECK(history_toggle != nullptr);
+  CHECK(properties_toggle != nullptr);
+  CHECK(info_toggle != nullptr);
+  CHECK(window.findChild<QDockWidget*>(QStringLiteral("swatchesDock")) == nullptr);
+  CHECK(history_toggle->text() == QStringLiteral(">"));
+  CHECK(properties_toggle->text() == QStringLiteral(">"));
+  CHECK(info_toggle->text() == QStringLiteral(">"));
+  CHECK(history_toggle->icon().isNull());
+  require_action(window, "layerNewAction")->trigger();
+  QApplication::processEvents();
+  CHECK(history_list->count() > 0);
+  history_toggle->setChecked(true);
+  QApplication::processEvents();
+  QApplication::processEvents();
+  const auto history_row_height = history_list->sizeHintForRow(0);
+  CHECK(history_row_height > 0);
+  CHECK(history_toggle->text() == QStringLiteral("v"));
+  // The expanded floor stays low so panel state cannot force the window
+  // taller; the 190px working height arrives through resizeDocks instead.
+  CHECK(history_dock->minimumHeight() >= 90);
+  CHECK(history_dock->minimumHeight() <= 120);
+  CHECK(history_dock->height() >= 190);
+  CHECK(history_list->viewport()->height() >= history_row_height * 3);
+  save_widget_artifact("ui_history_expanded_default", *history_dock);
+  history_toggle->setChecked(false);
+  QApplication::processEvents();
+  QApplication::processEvents();
+  // Collapsed docks all pin min == max to the title-bar height: none may show
+  // a dead strip under its header (History used to sit 8px taller).
+  auto* info_dock = window.findChild<QDockWidget*>(QStringLiteral("infoDock"));
+  auto* palette_dock = window.findChild<QDockWidget*>(QStringLiteral("paletteDock"));
+  CHECK(info_dock != nullptr);
+  CHECK(palette_dock != nullptr);
+  CHECK(history_dock->height() == properties_dock->height());
+  CHECK(history_dock->height() == info_dock->height());
+  CHECK(history_dock->height() == palette_dock->height());
+  CHECK(layers_dock->width() >= 260);
+  const auto dock_width_before_resize = layers_dock->width();
+  auto* dock_resize_handle = window.findChild<QWidget*>(QStringLiteral("rightDockResizeHandle"));
+  CHECK(dock_resize_handle != nullptr);
+  const auto dock_resize_point = dock_resize_handle->rect().center();
+  send_mouse(*dock_resize_handle, QEvent::MouseButtonPress, dock_resize_point, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*dock_resize_handle, QEvent::MouseMove, dock_resize_point + QPoint(-90, 0), Qt::NoButton,
+             Qt::LeftButton);
+  send_mouse(*dock_resize_handle, QEvent::MouseButtonRelease, dock_resize_point + QPoint(-90, 0), Qt::LeftButton,
+             Qt::NoButton);
+  CHECK(layers_dock->width() > dock_width_before_resize + 40);
+  // The whole stack, palette included, follows the pinned width.
+  CHECK(palette_dock->width() == layers_dock->width());
+
+  auto* row_widget = layer_list->itemWidget(layer_list->item(0));
+  CHECK(row_widget != nullptr);
+  CHECK(row_widget->findChild<QLabel*>(QStringLiteral("layerRowDetails")) != nullptr);
+
+  const auto point = canvas->widget_position_for_document_point(QPoint(64, 48));
+  send_mouse(*canvas, QEvent::MouseMove, point, Qt::NoButton, Qt::NoButton);
+  CHECK(info->text().contains(QStringLiteral("X: 64")));
+  CHECK(info->text().contains(QStringLiteral("Y: 48")));
+  CHECK(info->text().contains(QStringLiteral("RGB:")));
+
+  require_action_by_text(window, QStringLiteral("Marquee"))->trigger();
+  const auto marquee_start = canvas->widget_position_for_document_point(QPoint(40, 40));
+  const auto marquee_end = canvas->widget_position_for_document_point(QPoint(140, 90));
+  send_mouse(*canvas, QEvent::MouseButtonPress, marquee_start, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*canvas, QEvent::MouseMove, marquee_end, Qt::NoButton, Qt::LeftButton);
+  CHECK(info->text().contains(QStringLiteral("Selection:")));
+  CHECK(info->text().contains(QStringLiteral(" at 40, 40")));
+  send_mouse(*canvas, QEvent::MouseButtonRelease, marquee_end, Qt::LeftButton, Qt::NoButton);
+  save_widget_artifact("ui_info_panel_layers_docks", window);
+}
+
+void ui_layer_opacity_control_defers_slow_rendering_and_undoes_once() {
+  patchy::Document document(180, 120, patchy::PixelFormat::rgba8());
+  document.add_pixel_layer("Background", solid_pixels(180, 120, patchy::PixelFormat::rgba8(), QColor(Qt::white)));
+  patchy::Layer layer(document.allocate_layer_id(), "Opacity Target",
+                      solid_pixels(90, 70, patchy::PixelFormat::rgba8(), QColor(30, 150, 220, 255)));
+  const auto layer_id = layer.id();
+  layer.set_bounds(patchy::Rect{35, 25, 90, 70});
+  document.add_layer(std::move(layer));
+  document.set_active_layer(layer_id);
+
+  patchy::ui::MainWindow window;
+  window.add_document_session(std::move(document), QStringLiteral("Opacity Deferred"));
+  show_window(window);
+  auto* canvas = require_canvas(window);
+  canvas->set_zoom(1.0);
+  canvas->force_refresh();
+  QApplication::processEvents();
+
+  auto* opacity_spin = window.findChild<QSpinBox*>(QStringLiteral("layerOpacitySpin"));
+  CHECK(opacity_spin != nullptr);
+  CHECK(opacity_spin->value() == 100);
+
+  EnvironmentVariableRestorer restore_delay("PATCHY_PROCESSING_OVERLAY_DELAY_MS");
+  EnvironmentVariableRestorer restore_min_pixels("PATCHY_PROCESSING_OVERLAY_MIN_PIXELS");
+  EnvironmentVariableRestorer restore_render_delay("PATCHY_PROCESSING_RENDER_TEST_DELAY_MS");
+  qputenv("PATCHY_PROCESSING_OVERLAY_DELAY_MS", QByteArray("0"));
+  qputenv("PATCHY_PROCESSING_OVERLAY_MIN_PIXELS", QByteArray("0"));
+  qputenv("PATCHY_PROCESSING_RENDER_TEST_DELAY_MS", QByteArray("240"));
+
+  // The popup slider drives the spin box with plain setValue calls, so this
+  // sweep exercises the same path a slider drag does.
+  QElapsedTimer slider_updates;
+  slider_updates.start();
+  for (int value = 99; value >= 25; --value) {
+    opacity_spin->setValue(value);
+    CHECK(opacity_spin->value() == value);
+    QApplication::processEvents(QEventLoop::AllEvents, 1);
+  }
+  CHECK(slider_updates.elapsed() < 300);
+  CHECK(opacity_spin->value() == 25);
+
+  auto& edited_document = patchy::ui::MainWindowTestAccess::document(window);
+  auto* edited_layer = edited_document.find_layer(layer_id);
+  CHECK(edited_layer != nullptr);
+  QElapsedTimer wait_for_apply;
+  wait_for_apply.start();
+  while (std::abs(edited_layer->opacity() - 0.25F) > 0.001F && wait_for_apply.elapsed() < 900) {
+    QApplication::processEvents(QEventLoop::AllEvents, 20);
+  }
+  CHECK(std::abs(edited_layer->opacity() - 0.25F) <= 0.001F);
+
+  require_action_by_text(window, QStringLiteral("Undo"))->trigger();
+  QApplication::processEvents();
+  edited_layer = patchy::ui::MainWindowTestAccess::document(window).find_layer(layer_id);
+  CHECK(edited_layer != nullptr);
+  CHECK(std::abs(edited_layer->opacity() - 1.0F) <= 0.001F);
+}
+
+void ui_collapsed_right_docks_keep_deep_layer_rows_readable() {
+  patchy::Document document(128, 128, patchy::PixelFormat::rgba8());
+  patchy::Layer root(document.allocate_layer_id(), "Root Folder", patchy::LayerKind::Group);
+  auto* current = &root;
+  // Deep enough that the indented rows overflow the measured minimum dock
+  // width (which grew past the old 280 px floor) and force horizontal scroll.
+  for (int depth = 1; depth <= 14; ++depth) {
+    current->add_child(
+        patchy::Layer(document.allocate_layer_id(), "Nested Folder " + std::to_string(depth), patchy::LayerKind::Group));
+    current = &current->children().back();
+  }
+  auto deep_pixels = solid_pixels(128, 128, patchy::PixelFormat::rgba8(), QColor(20, 120, 220, 255));
+  patchy::Layer deep_layer(document.allocate_layer_id(), "Deep Paint Layer With Long Name", std::move(deep_pixels));
+  const auto deep_layer_id = deep_layer.id();
+  current->add_child(std::move(deep_layer));
+  for (int index = 1; index <= 24; ++index) {
+    current->add_child(patchy::Layer(document.allocate_layer_id(), "Deep Scroll Filler " + std::to_string(index),
+                                     solid_pixels(128, 128, patchy::PixelFormat::rgba8(),
+                                                  QColor(35, 70 + (index * 7) % 120, 160, 255))));
+  }
+  document.add_layer(std::move(root));
+  document.set_active_layer(deep_layer_id);
+
+  patchy::ui::MainWindow window;
+  window.add_document_session(std::move(document), QStringLiteral("Deep Layers"));
+  show_window(window);
+  auto* layer_list = window.findChild<QListWidget*>(QStringLiteral("layerList"));
+  auto* history_toggle = window.findChild<QToolButton*>(QStringLiteral("historyDockCollapseButton"));
+  auto* properties_toggle = window.findChild<QToolButton*>(QStringLiteral("propertiesDockCollapseButton"));
+  auto* info_toggle = window.findChild<QToolButton*>(QStringLiteral("infoDockCollapseButton"));
+  CHECK(layer_list != nullptr);
+  CHECK(history_toggle != nullptr);
+  CHECK(properties_toggle != nullptr);
+  CHECK(info_toggle != nullptr);
+  CHECK(history_toggle->text() == QStringLiteral(">"));
+  CHECK(properties_toggle->text() == QStringLiteral(">"));
+  CHECK(info_toggle->text() == QStringLiteral(">"));
+
+  auto* deep_item = require_layer_item(*layer_list, QStringLiteral("Deep Paint Layer With Long Name"));
+  layer_list->scrollToItem(deep_item, QAbstractItemView::PositionAtCenter);
+  QApplication::processEvents();
+
+  auto* row_widget = layer_list->itemWidget(deep_item);
+  CHECK(row_widget != nullptr);
+  auto* visibility = row_widget->findChild<QToolButton*>(QStringLiteral("layerVisibilityCheck"));
+  auto* thumbnail = row_widget->findChild<QLabel*>(QStringLiteral("layerContentThumbnail"));
+  auto* horizontal_scroll = layer_list->horizontalScrollBar();
+  CHECK(visibility != nullptr);
+  CHECK(thumbnail != nullptr);
+  CHECK(horizontal_scroll != nullptr);
+  CHECK(horizontal_scroll->maximum() > horizontal_scroll->minimum());
+  horizontal_scroll->setValue(horizontal_scroll->minimum());
+  QApplication::processEvents();
+  const auto initial_visibility_left = visibility->mapTo(layer_list->viewport(), QPoint()).x();
+  const auto initial_thumbnail_right = thumbnail->mapTo(layer_list->viewport(), QPoint(thumbnail->width(), 0)).x();
+  CHECK(initial_visibility_left >= 0);
+  CHECK(initial_visibility_left < layer_list->viewport()->width() / 2);
+  horizontal_scroll->setValue(std::clamp(initial_thumbnail_right - (layer_list->viewport()->width() - 16),
+                                        horizontal_scroll->minimum(), horizontal_scroll->maximum()));
+  QApplication::processEvents();
+  const auto scrolled_thumbnail_right = thumbnail->mapTo(layer_list->viewport(), QPoint(thumbnail->width(), 0)).x();
+  CHECK(scrolled_thumbnail_right <= layer_list->viewport()->width() - 16);
+
+  auto scrollbar_ancestor = [](QWidget* widget) -> QScrollBar* {
+    for (auto* current = widget; current != nullptr; current = current->parentWidget()) {
+      if (auto* scroll = qobject_cast<QScrollBar*>(current); scroll != nullptr) {
+        return scroll;
+      }
+    }
+    return nullptr;
+  };
+  auto scrollbar_slider_rect = [](QScrollBar* scroll) {
+    QStyleOptionSlider option;
+    option.initFrom(scroll);
+    option.orientation = scroll->orientation();
+    option.minimum = scroll->minimum();
+    option.maximum = scroll->maximum();
+    option.singleStep = scroll->singleStep();
+    option.pageStep = scroll->pageStep();
+    option.sliderPosition = scroll->sliderPosition();
+    option.sliderValue = scroll->value();
+    option.upsideDown = scroll->invertedAppearance();
+    return scroll->style()->subControlRect(QStyle::CC_ScrollBar, &option, QStyle::SC_ScrollBarSlider, scroll);
+  };
+  auto check_scrollbar_hit_target = [&](QScrollBar* scroll) {
+    CHECK(scroll != nullptr);
+    CHECK(scroll->maximum() > scroll->minimum());
+    scroll->setValue((scroll->minimum() + scroll->maximum()) / 2);
+    QApplication::processEvents();
+    const auto slider = scrollbar_slider_rect(scroll);
+    CHECK(slider.isValid());
+    const auto start = scroll->orientation() == Qt::Vertical
+                           ? QPoint(std::clamp(scroll->width() - 2, slider.left(), slider.right()),
+                                    slider.center().y())
+                           : QPoint(slider.center().x(),
+                                    std::clamp(scroll->height() - 2, slider.top(), slider.bottom()));
+    auto* hit = layer_list->childAt(scroll->mapTo(layer_list, start));
+    CHECK(scrollbar_ancestor(hit) == scroll);
+  };
+  check_scrollbar_hit_target(layer_list->verticalScrollBar());
+  check_scrollbar_hit_target(layer_list->horizontalScrollBar());
+
+  auto clear_layer_row_masks = [&] {
+    for (int row_index = 0; row_index < layer_list->count(); ++row_index) {
+      if (auto* row = layer_list->itemWidget(layer_list->item(row_index)); row != nullptr) {
+        row->clearMask();
+      }
+    }
+  };
+  auto send_mouse_at_global = [](QWidget& widget, QEvent::Type type, QPoint global_position,
+                                 Qt::MouseButton button, Qt::MouseButtons buttons) {
+    QMouseEvent event(type, widget.mapFromGlobal(global_position), global_position, button, buttons, Qt::NoModifier);
+    QApplication::sendEvent(&widget, &event);
+    QApplication::processEvents();
+  };
+  auto drag_scrollbar_through_current_hit = [&](QScrollBar* scroll, int pixels) {
+    CHECK(scroll != nullptr);
+    CHECK(scroll->maximum() > scroll->minimum());
+    scroll->setValue((scroll->minimum() + scroll->maximum()) / 2);
+    QApplication::processEvents();
+    const auto slider = scrollbar_slider_rect(scroll);
+    CHECK(slider.isValid());
+    const auto start = slider.center();
+    const auto start_global = scroll->mapToGlobal(start);
+    auto* hit = layer_list->childAt(layer_list->mapFromGlobal(start_global));
+    CHECK(hit != nullptr);
+    const auto before = scroll->value();
+    const auto end_global =
+        start_global + (scroll->orientation() == Qt::Vertical ? QPoint(0, pixels) : QPoint(pixels, 0));
+    if (hit == scroll) {
+      send_mouse(*scroll, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+      send_mouse(*scroll, QEvent::MouseMove, start + (scroll->orientation() == Qt::Vertical ? QPoint(0, pixels)
+                                                                                             : QPoint(pixels, 0)),
+                 Qt::NoButton, Qt::LeftButton);
+      send_mouse(*scroll, QEvent::MouseButtonRelease,
+                 start + (scroll->orientation() == Qt::Vertical ? QPoint(0, pixels) : QPoint(pixels, 0)),
+                 Qt::LeftButton, Qt::NoButton);
+    } else {
+      send_mouse_at_global(*hit, QEvent::MouseButtonPress, start_global, Qt::LeftButton, Qt::LeftButton);
+      send_mouse_at_global(*hit, QEvent::MouseMove, end_global, Qt::NoButton, Qt::LeftButton);
+      send_mouse_at_global(*hit, QEvent::MouseButtonRelease, end_global, Qt::LeftButton, Qt::NoButton);
+    }
+    return scroll->value() > before;
+  };
+  QMessageBox warning(QMessageBox::Warning, QStringLiteral("Warning"), QStringLiteral("Warning"), QMessageBox::Ok,
+                      &window);
+  QTimer::singleShot(0, &warning, [&] { warning.accept(); });
+  warning.exec();
+  clear_layer_row_masks();
+  CHECK(drag_scrollbar_through_current_hit(layer_list->verticalScrollBar(), 48));
+  CHECK(drag_scrollbar_through_current_hit(layer_list->horizontalScrollBar(), 48));
+  QEvent activate_event(QEvent::WindowActivate);
+  QApplication::sendEvent(layer_list, &activate_event);
+  QApplication::processEvents();
+  check_scrollbar_hit_target(layer_list->verticalScrollBar());
+  check_scrollbar_hit_target(layer_list->horizontalScrollBar());
+  save_widget_artifact("ui_collapsed_right_docks_deep_layer_rows", window);
+}
+
+void ui_right_dock_panels_expand_within_window_height() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto& document = patchy::ui::MainWindowTestAccess::document(window);
+
+  // Worst-case palette: 256 colors is 22 swatch rows, which must scroll
+  // inside the panel instead of forcing the dock (and the window) taller.
+  patchy::DocumentPaletteEditing editing;
+  for (int index = 0; index < 256; ++index) {
+    editing.palette.colors.push_back(patchy::RgbColor{static_cast<std::uint8_t>(index),
+                                                      static_cast<std::uint8_t>(255 - index),
+                                                      static_cast<std::uint8_t>(index / 2)});
+  }
+  editing.palette_revision = 902;
+  document.palette_editing() = editing;
+  patchy::ui::MainWindowTestAccess::refresh_document_info(window);
+  QApplication::processEvents();
+
+  for (const auto* name : {"historyDockCollapseButton", "propertiesDockCollapseButton",
+                           "infoDockCollapseButton", "paletteDockCollapseButton"}) {
+    auto* toggle = window.findChild<QToolButton*>(QLatin1String(name));
+    CHECK(toggle != nullptr);
+    toggle->setChecked(true);
+    QApplication::processEvents();
+  }
+  QApplication::processEvents();
+  QApplication::processEvents();
+
+  // Expanding every panel must leave the window minimum bounded (the palette
+  // grid alone used to add ~440px of hard minimum, pushing past 1300): the
+  // all-expanded window still fits a 1080p work area, and each expand
+  // releases its height demand so nothing pins the minimum above the floors.
+  CHECK(window.height() <= 950);
+  CHECK(window.minimumSizeHint().height() <= 950);
+
+  auto* palette_scroll = window.findChild<QScrollArea*>(QStringLiteral("paletteScrollArea"));
+  CHECK(palette_scroll != nullptr);
+  CHECK(palette_scroll->verticalScrollBar()->maximum() > 0);
+
+  int docks_height = 0;
+  for (const auto* name : {"layersDock", "historyDock", "propertiesDock", "infoDock", "paletteDock"}) {
+    const auto* dock = window.findChild<QDockWidget*>(QLatin1String(name));
+    CHECK(dock != nullptr);
+    CHECK(dock->height() <= window.height());
+    docks_height += dock->height();
+  }
+  CHECK(docks_height <= window.height());
+}
+
+void ui_collapsed_right_docks_have_uniform_title_height() {
+  patchy::ui::MainWindow window;
+  show_window(window);
+  // History/Properties/Info/Palette all start collapsed: each renders as the
+  // bare title strip, pinned min == max, with no dead band under the header
+  // (History used to sit 8px taller than its neighbors) and at the shared
+  // stack width (Palette used to keep its own minimum and render as a
+  // shorter strip).
+  int first_height = -1;
+  int first_width = -1;
+  for (const auto* name : {"historyDock", "propertiesDock", "infoDock", "paletteDock"}) {
+    auto* dock = window.findChild<QDockWidget*>(QLatin1String(name));
+    CHECK(dock != nullptr);
+    CHECK(dock->titleBarWidget() != nullptr);
+    CHECK(dock->minimumHeight() == dock->maximumHeight());
+    CHECK(dock->height() <= dock->titleBarWidget()->sizeHint().height() + 4);
+    if (first_height < 0) {
+      first_height = dock->height();
+      first_width = dock->width();
+    }
+    CHECK(dock->height() == first_height);
+    CHECK(dock->width() == first_width);
+  }
+  save_widget_artifact("ui_collapsed_right_docks_uniform_titles", window);
+}
+
+void ui_short_panel_scroll_bar_drags_by_handle() {
+  // A squeezed panel's scrollbar is short. Without box properties on the
+  // scroll bar's QSS widget rule, the groove rect came from the native
+  // style, whose arrow-button reservation made the groove smaller than the
+  // styled handle; the drag span went negative and every handle drag
+  // snapped the value to the minimum.
+  patchy::ui::MainWindow window;
+  show_window(window);
+  require_action(window, "layerNewAction")->trigger();
+  QApplication::processEvents();
+  for (const auto* name : {"historyDockCollapseButton", "propertiesDockCollapseButton",
+                           "infoDockCollapseButton", "paletteDockCollapseButton"}) {
+    auto* toggle = window.findChild<QToolButton*>(QLatin1String(name));
+    CHECK(toggle != nullptr);
+    toggle->setChecked(true);
+    QApplication::processEvents();
+  }
+  QApplication::processEvents();
+  QApplication::processEvents();
+
+  auto* properties_scroll = window.findChild<QScrollArea*>(QStringLiteral("propertiesScrollArea"));
+  CHECK(properties_scroll != nullptr);
+  auto* vbar = properties_scroll->verticalScrollBar();
+  CHECK(vbar->isVisible());
+  CHECK(vbar->maximum() > vbar->minimum());
+  CHECK(vbar->height() < 120);
+
+  vbar->setValue((vbar->minimum() + vbar->maximum()) / 2);
+  QApplication::processEvents();
+  QStyleOptionSlider option;
+  option.initFrom(vbar);
+  option.orientation = vbar->orientation();
+  option.minimum = vbar->minimum();
+  option.maximum = vbar->maximum();
+  option.singleStep = vbar->singleStep();
+  option.pageStep = vbar->pageStep();
+  option.sliderPosition = vbar->sliderPosition();
+  option.sliderValue = vbar->value();
+  option.upsideDown = vbar->invertedAppearance();
+  const auto slider =
+      vbar->style()->subControlRect(QStyle::CC_ScrollBar, &option, QStyle::SC_ScrollBarSlider, vbar);
+  const auto groove =
+      vbar->style()->subControlRect(QStyle::CC_ScrollBar, &option, QStyle::SC_ScrollBarGroove, vbar);
+  CHECK(slider.isValid());
+  // The groove must fit the styled handle or the drag span is negative; the
+  // widget rule's margin: 0 is what makes QSS own the groove rect.
+  CHECK(groove.height() >= slider.height());
+
+  const auto before = vbar->value();
+  const auto start = slider.center();
+  send_mouse(*vbar, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+  send_mouse(*vbar, QEvent::MouseMove, start + QPoint(0, 10), Qt::NoButton, Qt::LeftButton);
+  send_mouse(*vbar, QEvent::MouseButtonRelease, start + QPoint(0, 10), Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  CHECK(vbar->value() > before);
+}
+
+void ui_tabbed_right_dock_drags_out_by_tab() {
+  // Docks dropped onto each other tabify; without GroupedDragging Qt ignores
+  // tab drags entirely, so a dock could be dragged INTO a tab group but
+  // never back out.
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* info_dock = window.findChild<QDockWidget*>(QStringLiteral("infoDock"));
+  auto* palette_dock = window.findChild<QDockWidget*>(QStringLiteral("paletteDock"));
+  auto* properties_dock = window.findChild<QDockWidget*>(QStringLiteral("propertiesDock"));
+  CHECK(info_dock != nullptr);
+  CHECK(palette_dock != nullptr);
+  CHECK(properties_dock != nullptr);
+  window.tabifyDockWidget(info_dock, palette_dock);
+  window.tabifyDockWidget(info_dock, properties_dock);
+  palette_dock->raise();
+  QApplication::processEvents();
+  CHECK(window.tabifiedDockWidgets(palette_dock).size() == 2);
+  CHECK((window.dockOptions() & QMainWindow::GroupedDragging) != 0);
+
+  QTabBar* palette_tab_bar = nullptr;
+  int palette_tab_index = -1;
+  for (auto* tab_bar : window.findChildren<QTabBar*>()) {
+    for (int index = 0; index < tab_bar->count(); ++index) {
+      if (tab_bar->tabText(index) == QStringLiteral("Palette")) {
+        palette_tab_bar = tab_bar;
+        palette_tab_index = index;
+        break;
+      }
+    }
+  }
+  CHECK(palette_tab_bar != nullptr);
+
+  const auto start = palette_tab_bar->tabRect(palette_tab_index).center();
+  send_mouse(*palette_tab_bar, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+  for (int step = 1; step <= 8; ++step) {
+    send_mouse(*palette_tab_bar, QEvent::MouseMove, start + QPoint(-30 * step, 20 * step), Qt::NoButton,
+               Qt::LeftButton);
+    QApplication::processEvents();
+  }
+  send_mouse(*palette_tab_bar, QEvent::MouseButtonRelease, start + QPoint(-240, 160), Qt::LeftButton,
+             Qt::NoButton);
+  QApplication::processEvents();
+  CHECK(window.tabifiedDockWidgets(palette_dock).empty());
+}
+
+void ui_right_dock_contents_clear_width_handle() {
+  // The 7px width handle overlays every right dock's left edge (so the
+  // column divider is grabbable along its whole height); titles and panel
+  // contents must carry a left inset that keeps them clear of it instead of
+  // butting against the divider.
+  patchy::ui::MainWindow window;
+  show_window(window);
+  for (const auto* name : {"historyDockCollapseButton", "propertiesDockCollapseButton",
+                           "infoDockCollapseButton", "paletteDockCollapseButton"}) {
+    auto* toggle = window.findChild<QToolButton*>(QLatin1String(name));
+    CHECK(toggle != nullptr);
+    toggle->setChecked(true);
+    QApplication::processEvents();
+  }
+  QApplication::processEvents();
+  QApplication::processEvents();
+
+  const auto dock_left_inset = [&window](const char* dock_name, QWidget* content) {
+    auto* dock = window.findChild<QDockWidget*>(QLatin1String(dock_name));
+    CHECK(dock != nullptr);
+    CHECK(content != nullptr);
+    auto* handle =
+        dock->findChild<QWidget*>(QStringLiteral("rightDockResizeHandle"), Qt::FindDirectChildrenOnly);
+    CHECK(handle != nullptr);
+    CHECK(handle->width() >= 7);
+    return content->mapTo(&window, QPoint(0, 0)).x() - dock->mapTo(&window, QPoint(0, 0)).x();
+  };
+
+  CHECK(dock_left_inset("layersDock", window.findChild<QComboBox*>(QStringLiteral("layerBlendModeCombo"))) >= 13);
+  CHECK(dock_left_inset("historyDock", window.findChild<QListWidget*>(QStringLiteral("historyList"))) >= 7);
+  CHECK(dock_left_inset("propertiesDock", window.findChild<QLabel*>(QStringLiteral("documentInfoLabel"))) >= 13);
+  CHECK(dock_left_inset("infoDock", window.findChild<QLabel*>(QStringLiteral("canvasInfoLabel"))) >= 15);
+  CHECK(dock_left_inset("paletteDock", window.findChild<QComboBox*>(QStringLiteral("palettePresetCombo"))) >= 13);
+  CHECK(dock_left_inset("channelsDock", window.findChild<QListWidget*>(QStringLiteral("channelList"))) >= 13);
+  CHECK(dock_left_inset("pathsDock", window.findChild<QListWidget*>(QStringLiteral("pathsList"))) >= 13);
+  // The collapse toggle in the title bar clears the handle too.
+  CHECK(dock_left_inset("historyDock",
+                        window.findChild<QToolButton*>(QStringLiteral("historyDockCollapseButton"))) >= 14);
+}
+
+void ui_right_dock_separator_drags_between_docks() {
+  // The horizontal QMainWindow separators between the right docks stay
+  // draggable: the boost/release expand scheme leaves expanded docks at low
+  // floors, so adjacent separators keep travel, and the separator band
+  // between two docks is never covered by another widget.
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* history_toggle = window.findChild<QToolButton*>(QStringLiteral("historyDockCollapseButton"));
+  CHECK(history_toggle != nullptr);
+  history_toggle->setChecked(true);
+  QApplication::processEvents();
+  QApplication::processEvents();
+
+  auto* layers_dock = window.findChild<QDockWidget*>(QStringLiteral("layersDock"));
+  auto* history_dock = window.findChild<QDockWidget*>(QStringLiteral("historyDock"));
+  CHECK(layers_dock != nullptr);
+  CHECK(history_dock != nullptr);
+  const auto layers_rect = QRect(layers_dock->mapTo(&window, QPoint(0, 0)), layers_dock->size());
+  const auto history_rect = QRect(history_dock->mapTo(&window, QPoint(0, 0)), history_dock->size());
+  const auto gap = history_rect.top() - layers_rect.bottom() - 1;
+  CHECK(gap >= 5);
+
+  const QPoint start(layers_rect.center().x(), (layers_rect.bottom() + history_rect.top()) / 2 + 1);
+  CHECK(window.childAt(start) == nullptr);
+  const auto layers_before = layers_dock->height();
+  send_mouse(window, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+  for (int step = 1; step <= 4; ++step) {
+    send_mouse(window, QEvent::MouseMove, start + QPoint(0, -12 * step), Qt::NoButton, Qt::LeftButton);
+    QApplication::processEvents();
+  }
+  send_mouse(window, QEvent::MouseButtonRelease, start + QPoint(0, -48), Qt::LeftButton, Qt::NoButton);
+  QApplication::processEvents();
+  CHECK(layers_dock->height() < layers_before);
+}
+
+void ui_floating_right_dock_auto_expands() {
+  // Floating panels are always expanded: a collapsed strip is pinned to
+  // min == max and Qt cannot plug that into a floating tab group, so pulling
+  // a panel out expands it, and the collapse toggle only shows while the
+  // panel sits in the main window's column.
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* info_dock = window.findChild<QDockWidget*>(QStringLiteral("infoDock"));
+  auto* info_toggle = window.findChild<QToolButton*>(QStringLiteral("infoDockCollapseButton"));
+  CHECK(info_dock != nullptr);
+  CHECK(info_toggle != nullptr);
+  auto* handle =
+      info_dock->findChild<QWidget*>(QStringLiteral("rightDockResizeHandle"), Qt::FindDirectChildrenOnly);
+  CHECK(handle != nullptr);
+  CHECK(handle->isVisibleTo(info_dock));
+  CHECK(!info_toggle->isChecked());
+  CHECK(info_toggle->isVisibleTo(info_dock));
+  const auto collapsed_height = info_dock->height();
+
+  info_dock->setFloating(true);
+  QApplication::processEvents();
+  QApplication::processEvents();
+  QApplication::processEvents();
+  CHECK(info_dock->isFloating());
+  // Auto-expanded, toggle and column-width handle hidden while out.
+  CHECK(info_toggle->isChecked());
+  CHECK(!info_toggle->isVisibleTo(info_dock));
+  CHECK(!handle->isVisibleTo(info_dock));
+  auto* info_label = window.findChild<QLabel*>(QStringLiteral("canvasInfoLabel"));
+  CHECK(info_label != nullptr);
+  CHECK(info_label->isVisibleTo(info_dock));
+  CHECK(info_dock->height() > collapsed_height + 40);
+
+  // The floating dock gets the same widened chrome as a tab-group window:
+  // real frame margins, edge cursors, and strip presses resizing it.
+  CHECK(info_dock->contentsMargins().left() >= 8);
+  CHECK(info_dock->property("floatingChrome").toBool());
+  const QPointF strip_point(3, info_dock->height() / 2);
+  QHoverEvent strip_hover(QEvent::HoverMove, strip_point, QPointF(), strip_point - QPointF(0, 1));
+  QApplication::sendEvent(info_dock, &strip_hover);
+  CHECK(info_dock->cursor().shape() == Qt::SizeHorCursor);
+  const auto geometry_before_resize = info_dock->geometry();
+  const auto strip_local = strip_point.toPoint();
+  const auto strip_global = info_dock->mapToGlobal(strip_local);
+  QMouseEvent strip_press(QEvent::MouseButtonPress, strip_local, strip_global, Qt::LeftButton, Qt::LeftButton,
+                          Qt::NoModifier);
+  QApplication::sendEvent(info_dock, &strip_press);
+  QMouseEvent strip_move(QEvent::MouseMove, strip_local, strip_global + QPoint(-20, 0), Qt::NoButton,
+                         Qt::LeftButton, Qt::NoModifier);
+  QApplication::sendEvent(info_dock, &strip_move);
+  QMouseEvent strip_release(QEvent::MouseButtonRelease, strip_local, strip_global + QPoint(-20, 0),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+  QApplication::sendEvent(info_dock, &strip_release);
+  QApplication::processEvents();
+  CHECK(info_dock->geometry().width() == geometry_before_resize.width() + 20);
+  CHECK(info_dock->geometry().x() == geometry_before_resize.x() - 20);
+
+  // NOTE: interior (title/content) presses on a floating dock must pass
+  // through to QDockWidget, whose title drag is the only path that tracks
+  // drop targets and re-docks; the chrome handler claims only the frame
+  // strip. Qt's drop-plug does not complete under synthetic events, so that
+  // contract is verified manually; the strip-resize checks above pin the
+  // handler's half.
+  info_dock->setFloating(false);
+  QApplication::processEvents();
+  QApplication::processEvents();
+  QApplication::processEvents();
+  CHECK(!info_dock->isFloating());
+  CHECK(handle->isVisibleTo(info_dock));
+  CHECK(info_toggle->isVisibleTo(info_dock));
+  // The panel stays expanded after re-docking, and the floating chrome
+  // (frame margins, styling property) is fully removed.
+  CHECK(info_toggle->isChecked());
+  CHECK(info_label->isVisibleTo(info_dock));
+  CHECK(info_dock->contentsMargins().left() == 0);
+  CHECK(!info_dock->property("floatingChrome").toBool());
+}
+
+void ui_tabbed_dock_title_drag_floats_single_dock() {
+  // Dragging the collapsible title of a tabbed dock detaches that dock alone
+  // (like dragging its tab) with the grab point kept under the cursor.
+  // GroupedDragging would otherwise float the whole tab group, whose window
+  // is broken with custom title bars.
+  patchy::ui::MainWindow window;
+  show_window(window);
+  auto* layers_dock = window.findChild<QDockWidget*>(QStringLiteral("layersDock"));
+  auto* channels_dock = window.findChild<QDockWidget*>(QStringLiteral("channelsDock"));
+  auto* paths_dock = window.findChild<QDockWidget*>(QStringLiteral("pathsDock"));
+  CHECK(layers_dock != nullptr);
+  CHECK(channels_dock != nullptr);
+  CHECK(paths_dock != nullptr);
+  CHECK(window.tabifiedDockWidgets(layers_dock).size() == 2);
+
+  auto* title = layers_dock->titleBarWidget();
+  const auto press_in_dock = QPoint(title->geometry().center().x(), title->geometry().center().y());
+  const auto press_global = layers_dock->mapToGlobal(press_in_dock);
+  send_mouse(*layers_dock, QEvent::MouseButtonPress, press_in_dock, Qt::LeftButton, Qt::LeftButton);
+  QApplication::processEvents();
+  CHECK(!layers_dock->isFloating());
+
+  const auto target_global = press_global + QPoint(-260, 120);
+  for (int step = 1; step <= 6; ++step) {
+    const auto t = static_cast<double>(step) / 6.0;
+    const QPoint global(press_global.x() + (target_global.x() - press_global.x()) * t,
+                        press_global.y() + (target_global.y() - press_global.y()) * t);
+    QMouseEvent move(QEvent::MouseMove, layers_dock->mapFromGlobal(global), global, Qt::NoButton,
+                     Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(layers_dock, &move);
+    QApplication::processEvents();
+  }
+  CHECK(layers_dock->isFloating());
+  // The single dock detached: the rest of the tab group stayed docked.
+  CHECK(!channels_dock->isFloating());
+  CHECK(!paths_dock->isFloating());
+  CHECK(window.tabifiedDockWidgets(layers_dock).isEmpty());
+  // No jump: the grab offset within the dock is preserved at the drop point.
+  CHECK((layers_dock->pos() - (target_global - press_in_dock)).manhattanLength() <= 2);
+
+  QMouseEvent release(QEvent::MouseButtonRelease, layers_dock->mapFromGlobal(target_global), target_global,
+                      Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+  QApplication::sendEvent(layers_dock, &release);
+  QApplication::processEvents();
+  CHECK(layers_dock->isFloating());
+}
+
+void ui_dock_group_window_drags_by_blank_chrome() {
+  // Qt's floating dock tab-group window has no grabbable chrome: the blank
+  // strip beside the tabs must move the window, presses on the widened frame
+  // strip must resize it, and edge hovers must show a resize cursor. The
+  // private Qt class cannot be constructed here, so the handler's test seam
+  // (the patchy.dockGroupWindow property) stands in for it.
+  patchy::ui::MainWindow window;
+  show_window(window);
+
+  QWidget group;
+  group.setProperty("patchy.dockGroupWindow", true);
+  auto* tab_bar = new QTabBar(&group);
+  tab_bar->addTab(QStringLiteral("Paths"));
+  tab_bar->addTab(QStringLiteral("Channels"));
+  tab_bar->setGeometry(0, 0, tab_bar->tabRect(1).right() + 80, 24);
+  group.resize(300, 200);
+  group.move(100, 100);
+  group.show();
+  QApplication::processEvents();
+
+  const auto send_group_mouse = [](QWidget& target, QEvent::Type type, QPoint local, QPoint global,
+                                   Qt::MouseButton button, Qt::MouseButtons buttons) {
+    QMouseEvent event(type, local, global, button, buttons, Qt::NoModifier);
+    QApplication::sendEvent(&target, &event);
+    QApplication::processEvents();
+  };
+
+  // Blank-area drag moves the window by the mouse delta. The platform may
+  // have repositioned the shown window, so compare relative to its actual
+  // position.
+  const auto position_before_drag = group.pos();
+  const QPoint press_local(150, 100);
+  auto press_global = group.mapToGlobal(press_local);
+  send_group_mouse(group, QEvent::MouseButtonPress, press_local, press_global, Qt::LeftButton,
+                   Qt::LeftButton);
+  send_group_mouse(group, QEvent::MouseMove, press_local, press_global + QPoint(40, 30), Qt::NoButton,
+                   Qt::LeftButton);
+  send_group_mouse(group, QEvent::MouseButtonRelease, press_local, press_global + QPoint(40, 30),
+                   Qt::LeftButton, Qt::NoButton);
+  CHECK(group.pos() == position_before_drag + QPoint(40, 30));
+
+  // Edge presses resize by dragging the widened frame strip.
+  const auto geometry_before_resize = group.geometry();
+  const QPoint edge_local(3, 100);
+  auto edge_global = group.mapToGlobal(edge_local);
+  send_group_mouse(group, QEvent::MouseButtonPress, edge_local, edge_global, Qt::LeftButton, Qt::LeftButton);
+  send_group_mouse(group, QEvent::MouseMove, edge_local, edge_global + QPoint(-25, 0), Qt::NoButton,
+                   Qt::LeftButton);
+  send_group_mouse(group, QEvent::MouseButtonRelease, edge_local, edge_global + QPoint(-25, 0),
+                   Qt::LeftButton, Qt::NoButton);
+  CHECK(group.geometry().x() == geometry_before_resize.x() - 25);
+  CHECK(group.geometry().width() == geometry_before_resize.width() + 25);
+  CHECK(group.geometry().height() == geometry_before_resize.height());
+  const auto position_before_edge_press = group.pos();
+
+  // Edge hovers show the resize cursor; interior hovers restore the default.
+  // Probe points derive from the current size (the window was just resized).
+  const QPointF right_corner(group.width() - 3, group.height() - 3);
+  const QPointF center(group.width() / 2, group.height() / 2);
+  QHoverEvent left_hover(QEvent::HoverMove, QPointF(3, group.height() / 2), QPointF(),
+                         QPointF(3, group.height() / 2 - 1));
+  QApplication::sendEvent(&group, &left_hover);
+  CHECK(group.cursor().shape() == Qt::SizeHorCursor);
+  QHoverEvent corner_hover(QEvent::HoverMove, right_corner, QPointF(), right_corner - QPointF(1, 1));
+  QApplication::sendEvent(&group, &corner_hover);
+  CHECK(group.cursor().shape() == Qt::SizeFDiagCursor);
+  QHoverEvent center_hover(QEvent::HoverMove, center, QPointF(), center - QPointF(1, 1));
+  QApplication::sendEvent(&group, &center_hover);
+  CHECK(group.cursor().shape() == Qt::ArrowCursor);
+  // Enter events carry the cursor onto the thin frame strip even when hover
+  // synthesis misses it, and entering a child clears the inherited shape.
+  const QPointF right_edge(group.width() - 3, group.height() / 2);
+  QEnterEvent enter_edge(right_edge, right_edge, QPointF(group.mapToGlobal(right_edge.toPoint())));
+  QApplication::sendEvent(&group, &enter_edge);
+  CHECK(group.cursor().shape() == Qt::SizeHorCursor);
+  QEnterEvent enter_child(QPointF(10, 10), QPointF(10, 10), QPointF(tab_bar->mapToGlobal(QPoint(10, 10))));
+  QApplication::sendEvent(tab_bar, &enter_child);
+  CHECK(group.cursor().shape() == Qt::ArrowCursor);
+  const QPointF bottom_edge(group.width() / 2, group.height() - 3);
+  QEnterEvent enter_bottom(bottom_edge, bottom_edge, QPointF(group.mapToGlobal(bottom_edge.toPoint())));
+  QApplication::sendEvent(&group, &enter_bottom);
+  CHECK(group.cursor().shape() == Qt::SizeVerCursor);
+  QEvent leave_event(QEvent::Leave);
+  QApplication::sendEvent(&group, &leave_event);
+  CHECK(group.cursor().shape() == Qt::ArrowCursor);
+
+  // The blank stretch of the tab bar itself also drags the window.
+  const QPoint bar_local(tab_bar->tabRect(1).right() + 40, 12);
+  CHECK(tab_bar->tabAt(bar_local) < 0);
+  auto bar_global = tab_bar->mapToGlobal(bar_local);
+  send_group_mouse(*tab_bar, QEvent::MouseButtonPress, bar_local, bar_global, Qt::LeftButton, Qt::LeftButton);
+  send_group_mouse(*tab_bar, QEvent::MouseMove, bar_local, bar_global + QPoint(-30, 20), Qt::NoButton,
+                   Qt::LeftButton);
+  send_group_mouse(*tab_bar, QEvent::MouseButtonRelease, bar_local, bar_global + QPoint(-30, 20),
+                   Qt::LeftButton, Qt::NoButton);
+  CHECK(group.pos() == position_before_edge_press + QPoint(-30, 20));
+}
+
+void ui_menu_disabled_items_render_grayed() {
+  // The app stylesheet styles QMenu::item text, so without an explicit :disabled rule
+  // disabled entries rendered in the same bright color as enabled ones and were only
+  // discoverable by their refusal to highlight.
+  patchy::ui::MainWindow window;
+  show_window(window);
+
+  QMenu menu(&window);
+  auto* enabled_action = menu.addAction(QStringLiteral("Enabled entry"));
+  auto* disabled_action = menu.addAction(QStringLiteral("Disabled entry"));
+  disabled_action->setEnabled(false);
+  menu.popup(window.mapToGlobal(QPoint(60, 60)));
+  QApplication::processEvents();
+
+  const auto image = menu.grab().toImage();
+  const auto enabled_rect = menu.actionGeometry(enabled_action);
+  const auto disabled_rect = menu.actionGeometry(disabled_action);
+  menu.close();
+  QApplication::processEvents();
+
+  const QColor enabled_text(0xe6, 0xe6, 0xe6);
+  const QColor disabled_text(0x73, 0x73, 0x73);
+  CHECK(count_pixels_close(image, enabled_rect, enabled_text, 24) > 10);   // bright enabled label
+  CHECK(count_pixels_close(image, disabled_rect, enabled_text, 24) == 0);  // no bright pixels on the disabled row
+  CHECK(count_pixels_close(image, disabled_rect, disabled_text, 24) > 10);  // grayed label
+}
+
+}  // namespace
+
+std::vector<patchy::test::TestCase> canvas_view_tools_tests() {
+  return {
+      {"ui_startup_defaults_to_round_brush", ui_startup_defaults_to_round_brush},
+      {"ui_canvas_wheel_matches_photoshop_navigation", ui_canvas_wheel_matches_photoshop_navigation},
+      {"ui_canvas_wheel_zoom_mode_zooms_at_cursor", ui_canvas_wheel_zoom_mode_zooms_at_cursor},
+      {"ui_status_bar_zoom_percent_box_edits_zoom", ui_status_bar_zoom_percent_box_edits_zoom},
+      {"ui_zoom_tool_double_click_keeps_view_centered_at_actual_pixels",
+       ui_zoom_tool_double_click_keeps_view_centered_at_actual_pixels},
+      {"ui_image_resize_recenters_view_and_zoom_double_click_shows_document",
+       ui_image_resize_recenters_view_and_zoom_double_click_shows_document},
+      {"ui_size_dialogs_open_with_width_focused_and_selected",
+       ui_size_dialogs_open_with_width_focused_and_selected},
+      {"ui_zoom_preset_recovers_parked_view", ui_zoom_preset_recovers_parked_view},
+      {"ui_canvas_focus_in_restores_tool_cursor", ui_canvas_focus_in_restores_tool_cursor},
+      {"ui_max_brush_uses_overlay_cursor", ui_max_brush_uses_overlay_cursor},
+      {"ui_canvas_pan_keeps_document_partly_visible", ui_canvas_pan_keeps_document_partly_visible},
+      {"ui_canvas_scroll_bars_reflect_pan_range", ui_canvas_scroll_bars_reflect_pan_range},
+      {"ui_canvas_hand_pan_updates_scroll_bars", ui_canvas_hand_pan_updates_scroll_bars},
+      {"ui_canvas_scroll_bar_scrolls_view", ui_canvas_scroll_bar_scrolls_view},
+      {"ui_canvas_scroll_bars_follow_zoom_and_resize", ui_canvas_scroll_bars_follow_zoom_and_resize},
+      {"ui_canvas_fractional_zoom_paints_to_document_edge", ui_canvas_fractional_zoom_paints_to_document_edge},
+      {"ui_canvas_fractional_zoom_keeps_zoomed_in_pixels_sharp",
+       ui_canvas_fractional_zoom_keeps_zoomed_in_pixels_sharp},
+      {"ui_canvas_deep_zoom_without_grid_keeps_pixels_sharp",
+       ui_canvas_deep_zoom_without_grid_keeps_pixels_sharp},
+      {"ui_zoomed_out_canvas_uses_downsampled_display_mip",
+       ui_zoomed_out_canvas_uses_downsampled_display_mip},
+      {"ui_shape_flyout_and_zoom_tool_work", ui_shape_flyout_and_zoom_tool_work},
+      {"ui_stamp_and_gradient_flyouts_swap_tools", ui_stamp_and_gradient_flyouts_swap_tools},
+      {"ui_tool_palette_icons_render_sheet", ui_tool_palette_icons_render_sheet},
+      {"ui_filled_shape_preview_clears_after_commit", ui_filled_shape_preview_clears_after_commit},
+      {"ui_options_bar_tracks_active_tool", ui_options_bar_tracks_active_tool},
+      {"ui_gradient_toolbar_preset_popup_applies_stops", ui_gradient_toolbar_preset_popup_applies_stops},
+      {"ui_options_bar_spinboxes_fit_widest_value", ui_options_bar_spinboxes_fit_widest_value},
+      {"ui_right_docks_collapse_layers_show_metadata_and_info_updates",
+       ui_right_docks_collapse_layers_show_metadata_and_info_updates},
+      {"ui_layer_opacity_control_defers_slow_rendering_and_undoes_once",
+       ui_layer_opacity_control_defers_slow_rendering_and_undoes_once},
+      {"ui_collapsed_right_docks_keep_deep_layer_rows_readable",
+       ui_collapsed_right_docks_keep_deep_layer_rows_readable},
+      {"ui_right_dock_panels_expand_within_window_height", ui_right_dock_panels_expand_within_window_height},
+      {"ui_collapsed_right_docks_have_uniform_title_height",
+       ui_collapsed_right_docks_have_uniform_title_height},
+      {"ui_right_dock_separator_drags_between_docks", ui_right_dock_separator_drags_between_docks},
+      {"ui_right_dock_contents_clear_width_handle", ui_right_dock_contents_clear_width_handle},
+      {"ui_short_panel_scroll_bar_drags_by_handle", ui_short_panel_scroll_bar_drags_by_handle},
+      {"ui_tabbed_right_dock_drags_out_by_tab", ui_tabbed_right_dock_drags_out_by_tab},
+      {"ui_floating_right_dock_auto_expands", ui_floating_right_dock_auto_expands},
+      {"ui_tabbed_dock_title_drag_floats_single_dock", ui_tabbed_dock_title_drag_floats_single_dock},
+      {"ui_dock_group_window_drags_by_blank_chrome", ui_dock_group_window_drags_by_blank_chrome},
+      {"ui_menu_disabled_items_render_grayed", ui_menu_disabled_items_render_grayed},
+  };
+}
