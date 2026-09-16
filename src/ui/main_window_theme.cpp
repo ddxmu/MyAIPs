@@ -933,6 +933,14 @@ QString photoshop_style_template() {
       min-height: 34px;
       max-height: 34px;
     }
+    /* The adjustment-layer button combines the half-circle glyph with a menu.
+       Keep the menu chevron below that glyph and centered in the button; the
+       native QToolButton placement puts it at the lower-right corner. */
+    QToolButton#layerNewAdjustmentButton::menu-indicator {
+      subcontrol-origin: padding;
+      subcontrol-position: bottom center;
+      bottom: 1px;
+    }
     QToolButton[channelActionButton="true"] {
       padding: 0;
       min-width: 34px;
