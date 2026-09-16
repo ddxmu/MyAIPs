@@ -4,6 +4,13 @@ How to cut and publish a Patchy release. Read this in full before bumping a vers
 
 ## Version bump checklist
 
+For the MyAIPs macOS release, start with
+`scripts/release/prepare-myaips-macos-release.sh`. It increments the last numeric
+version component and updates `CMakeLists.txt` plus `latest_version.json`, so the
+sequence is `0.99 -> 0.100 -> 0.101`. Use
+`scripts/release/bump-myaips-version.sh --dry-run` to inspect the next value without
+changing files.
+
 Desktop packages include `patchy-mcp` and the assembled `patchy-control` skill.
 Staging and resource paths are specified in [ai-control.md](ai-control.md). Each
 desktop packaging script runs the installed connector's `--check` smoke test;
