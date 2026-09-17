@@ -226,19 +226,22 @@ void ui_main_window_renders_color_controls() {
   CHECK(background->font().pointSize() == 6);
   CHECK(foreground->parentWidget() == background->parentWidget());
   CHECK(foreground->parentWidget()->objectName() == QStringLiteral("colorSwatchStack"));
-  CHECK(foreground->parentWidget()->size() == QSize(36, 40));
-  CHECK(foreground->size() == QSize(32, 26));
-  CHECK(background->size() == QSize(25, 21));
+  CHECK(foreground->parentWidget()->size() == QSize(36, 46));
+  CHECK(foreground->size() == QSize(30, 30));
+  CHECK(background->size() == QSize(22, 22));
   CHECK(foreground->geometry().intersects(background->geometry()));
   CHECK(foreground->geometry().top() < background->geometry().top());
   CHECK(foreground->property("patchy.swatchRaised").toBool());
   CHECK(!background->property("patchy.swatchRaised").toBool());
-  const auto foreground_on_top = foreground->parentWidget()->grab().toImage().pixelColor(QPoint(30, 20));
+  CHECK(foreground->geometry() == QRect(1, 0, 30, 30));
+  CHECK(background->geometry() == QRect(12, 24, 22, 22));
+  const auto foreground_on_top = foreground->parentWidget()->grab().toImage().pixelColor(QPoint(20, 25));
   CHECK(foreground_on_top.red() < 32);
   CHECK(foreground_on_top.green() < 32);
   CHECK(foreground_on_top.blue() < 32);
   CHECK(!foreground->text().contains('#'));
   CHECK(!background->text().contains('#'));
+  save_widget_artifact("ui_color_swatch_stack", *foreground->parentWidget());
   CHECK(window.findChild<QDockWidget*>(QStringLiteral("swatchesDock")) == nullptr);
   CHECK(window.findChild<QToolButton*>(QStringLiteral("swatchesDockCollapseButton")) == nullptr);
   CHECK(window.findChildren<QPushButton*>(QStringLiteral("swatchButton")).isEmpty());
@@ -411,14 +414,17 @@ void ui_color_swatch_selection_raises_clicked_background() {
   QTest::mouseClick(background, Qt::LeftButton, Qt::NoModifier,
                     QPoint(background->width() / 2, background->height() - 3));
   QApplication::processEvents();
-  CHECK(foreground->size() == QSize(25, 21));
-  CHECK(background->size() == QSize(32, 26));
+  CHECK(foreground->size() == QSize(22, 22));
+  CHECK(background->size() == QSize(30, 30));
+  CHECK(foreground->geometry() == QRect(12, 24, 22, 22));
+  CHECK(background->geometry() == QRect(1, 0, 30, 30));
   CHECK(!foreground->property("patchy.swatchRaised").toBool());
   CHECK(background->property("patchy.swatchRaised").toBool());
-  const auto background_on_top = background->parentWidget()->grab().toImage().pixelColor(QPoint(30, 20));
+  const auto background_on_top = background->parentWidget()->grab().toImage().pixelColor(QPoint(20, 25));
   CHECK(background_on_top.red() > 220);
   CHECK(background_on_top.green() > 220);
   CHECK(background_on_top.blue() > 220);
+  save_widget_artifact("ui_color_swatch_background_active", *background->parentWidget());
   auto* color_dialog = window.findChild<QDialog*>(QStringLiteral("patchyColorDialog"));
   CHECK(color_dialog != nullptr);
   CHECK(color_dialog->property("patchy.colorTarget").toString() == QStringLiteral("background"));
@@ -427,8 +433,8 @@ void ui_color_swatch_selection_raises_clicked_background() {
   QTest::mouseClick(foreground, Qt::LeftButton, Qt::NoModifier,
                     QPoint(foreground->width() / 2, foreground->height() - 3));
   QApplication::processEvents();
-  CHECK(foreground->size() == QSize(32, 26));
-  CHECK(background->size() == QSize(25, 21));
+  CHECK(foreground->size() == QSize(30, 30));
+  CHECK(background->size() == QSize(22, 22));
   CHECK(foreground->property("patchy.swatchRaised").toBool());
   CHECK(!background->property("patchy.swatchRaised").toBool());
   color_dialog = window.findChild<QDialog*>(QStringLiteral("patchyColorDialog"));

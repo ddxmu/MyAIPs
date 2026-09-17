@@ -3,6 +3,10 @@
 Older Patchy release notes are collected here. The two most recent releases
 remain in [README.md](README.md#whats-new).
 
+## 0.103 - MyAIPs, September 17, 2026
+
+- Saving the AI tool-call limit now commits the edited value first, so a new limit such as 100 is saved instead of the previous value ([@ddxmu](https://github.com/ddxmu))
+
 ## 0.102 - MyAIPs, September 17, 2026
 
 - The AI Assistant shows request progress. Provider keys are saved in the local MyAIPs settings folder outside the app bundle and no longer use macOS Keychain; enter and save the key once after upgrading ([@ddxmu](https://github.com/ddxmu))

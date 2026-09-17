@@ -2088,7 +2088,7 @@ QString color_button_style(QColor color, int font_point_size, int content_width,
   const auto text = color.lightness() < 128 ? QStringLiteral("white") : QStringLiteral("black");
   const auto font_size = font_point_size > 0 ? QStringLiteral("font-size: %1pt;").arg(font_point_size) : QString{};
   const auto border = raised
-                          ? QStringLiteral("border: 2px solid @text_bright; border-right-color: @window_border; "
+                          ? QStringLiteral("border: 1px solid @text_bright; border-right-color: @window_border; "
                                            "border-bottom-color: @window_border;")
                           : QStringLiteral("border: 1px solid @text_bright;");
   return QStringLiteral(R"(

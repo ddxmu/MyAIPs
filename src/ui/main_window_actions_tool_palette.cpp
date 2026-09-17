@@ -1055,7 +1055,7 @@ void MainWindow::build_tool_palette(ActionBuildContext& ctx) {
   // the FG/BG swatches.
   auto* color_swatch_stack = new QWidget(tool_palette);
   color_swatch_stack->setObjectName(QStringLiteral("colorSwatchStack"));
-  color_swatch_stack->setFixedSize(36, 40);
+  color_swatch_stack->setFixedSize(36, 46);
   primary_color_button_ = new QPushButton(tr("FG"), color_swatch_stack);
   secondary_color_button_ = new QPushButton(tr("BG"), color_swatch_stack);
   primary_color_button_->setObjectName(QStringLiteral("foregroundColorButton"));
