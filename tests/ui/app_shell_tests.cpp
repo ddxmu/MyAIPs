@@ -3177,6 +3177,7 @@ void ui_ai_assistant_opens_from_start_panel() {
   bool dialog_opened = false;
   bool chat_controls_present = false;
   bool settings_controls_present = false;
+  bool api_key_saved_locally = false;
   QTimer::singleShot(0, &window, [&] {
     auto* dialog = window.findChild<QDialog*>(QStringLiteral("aiChatDialog"));
     auto* progress_bar = dialog != nullptr
@@ -3200,7 +3201,39 @@ void ui_ai_assistant_opens_from_start_panel() {
         auto* max_calls = settings->findChild<QSpinBox*>(QStringLiteral("aiModelMaxToolCallsSpinBox"));
         settings_controls_present = max_calls != nullptr && max_calls->minimum() == 1 &&
                                     max_calls->maximum() == 10000 && max_calls->value() >= 1;
-        settings->reject();
+        auto* api_key = settings->findChild<QLineEdit*>(QStringLiteral("aiModelApiKeyEdit"));
+        auto* model = settings->findChild<QComboBox*>(QStringLiteral("aiModelNameComboBox"));
+        auto* save = settings->findChild<QPushButton*>(QStringLiteral("aiModelSaveButton"));
+        CHECK(api_key != nullptr);
+        CHECK(model != nullptr);
+        CHECK(save != nullptr);
+        if (api_key != nullptr && model != nullptr && save != nullptr) {
+          api_key->setText(QStringLiteral("test-api-key"));
+          model->setEditText(QStringLiteral("test-model"));
+          save->click();
+          const auto settings_path = patchy::ui::app_settings().fileName();
+          const auto key_path = QDir(QFileInfo(settings_path).absolutePath()).filePath(QStringLiteral("ai_api_key"));
+          QFile key_file(key_path);
+          if (key_file.open(QIODevice::ReadOnly)) {
+            api_key_saved_locally = key_file.readAll() == QByteArrayLiteral("test-api-key") &&
+                                    QFileInfo(key_path).dir().dirName() == QStringLiteral("MyAIPs");
+#ifdef Q_OS_UNIX
+            const auto shared_permissions = QFileDevice::ReadGroup | QFileDevice::WriteGroup |
+                                           QFileDevice::ExeGroup | QFileDevice::ReadOther |
+                                           QFileDevice::WriteOther | QFileDevice::ExeOther;
+            api_key_saved_locally = api_key_saved_locally &&
+                                    (QFileInfo(key_path).permissions() & shared_permissions) ==
+                                        QFileDevice::Permissions{};
+#endif
+            key_file.close();
+          }
+          QFile::remove(key_path);
+          auto settings_values = patchy::ui::app_settings();
+          settings_values.remove(QStringLiteral("ai"));
+          settings_values.sync();
+        } else {
+          settings->reject();
+        }
       });
       settings_button->click();
       save_widget_artifact("ui_ai_assistant_dialog", *dialog);
@@ -3211,6 +3244,7 @@ void ui_ai_assistant_opens_from_start_panel() {
   CHECK(dialog_opened);
   CHECK(chat_controls_present);
   CHECK(settings_controls_present);
+  CHECK(api_key_saved_locally);
 }
 
 void ui_status_bar_error_message_flashes_then_persists_until_replaced() {

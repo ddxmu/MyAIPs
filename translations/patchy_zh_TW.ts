@@ -8460,14 +8460,6 @@ Some canvas actions may already have run. Check the document; use Undo if needed
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The API key is stored in the macOS Keychain.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>The API key is kept in memory for this app session on this platform.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Test Connection</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8530,6 +8522,10 @@ Some canvas actions may already have run. Check the document; use Undo if needed
     <message>
         <source>Tool calls per request</source>
         <translation>單次請求工具呼叫上限</translation>
+    </message>
+    <message>
+        <source>The API key is saved in the MyAIPs settings folder, outside the application package.</source>
+        <translation>API 金鑰會儲存在應用程式安裝包外的 MyAIPs 設定資料夾中。</translation>
     </message>
 </context>
 <context>

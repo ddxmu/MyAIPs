@@ -2,8 +2,8 @@
   "project": "ddxmu/MyAIPs",
   "platforms": {
     "macos": {
-      "version": "0.101",
-      "download_url": "https://github.com/ddxmu/MyAIPs/releases/download/v0.101/MyAIPs-0.101.dmg"
+      "version": "0.102",
+      "download_url": "https://github.com/ddxmu/MyAIPs/releases/download/v0.102/MyAIPs-0.102.dmg"
     }
   }
 }

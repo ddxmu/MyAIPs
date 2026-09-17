@@ -8483,14 +8483,6 @@ Some canvas actions may already have run. Check the document; use Undo if needed
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The API key is stored in the macOS Keychain.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>The API key is kept in memory for this app session on this platform.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Test Connection</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8553,6 +8545,10 @@ Some canvas actions may already have run. Check the document; use Undo if needed
     <message>
         <source>Tool calls per request</source>
         <translation>Appels d’outils par demande</translation>
+    </message>
+    <message>
+        <source>The API key is saved in the MyAIPs settings folder, outside the application package.</source>
+        <translation>La clé API est enregistrée dans le dossier des paramètres de MyAIPs, en dehors du package de l’application.</translation>
     </message>
 </context>
 <context>

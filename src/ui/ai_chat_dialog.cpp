@@ -9,6 +9,9 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QJsonDocument>
@@ -20,16 +23,13 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QSettings>
 #include <QSpinBox>
 #include <QStringList>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
-
-#ifdef Q_OS_MACOS
-#include <Security/Security.h>
-#endif
 
 namespace patchy::ui {
 namespace {
@@ -71,6 +71,12 @@ QString models_url(QString endpoint) {
   return endpoint + QStringLiteral("/v1/models");
 }
 
+QString api_key_file_path() {
+  const auto settings = app_settings();
+  const auto settings_dir = QFileInfo(settings.fileName()).absolutePath();
+  return QDir(settings_dir).filePath(QStringLiteral("ai_api_key"));
+}
+
 QNetworkRequest completion_request(const QString& endpoint, const QString& api_key) {
   QNetworkRequest request{QUrl(chat_completions_url(endpoint))};
   request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
@@ -92,106 +98,72 @@ QNetworkRequest models_request(const QString& endpoint, const QString& api_key) 
   return request;
 }
 
-#ifdef Q_OS_MACOS
-CFMutableDictionaryRef keychain_query(bool suppress_authentication_prompt) {
-  auto* query = CFDictionaryCreateMutable(kCFAllocatorDefault, 5,
-                                          &kCFTypeDictionaryKeyCallBacks,
-                                          &kCFTypeDictionaryValueCallBacks);
-  CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
-  // Use a new service name after the first MyAIPs builds used an ad-hoc
-  // signature. macOS ties the old item's access list to that signature and
-  // would otherwise show a login-keychain password prompt on every read.
-  CFDictionarySetValue(query, kSecAttrService, CFSTR("com.myaips.editor.ai.v2"));
-  CFDictionarySetValue(query, kSecAttrAccount, CFSTR("default-api-key"));
-  if (suppress_authentication_prompt) {
-    CFDictionarySetValue(query, kSecUseAuthenticationUI, kSecUseAuthenticationUIFail);
-  }
-  return query;
-}
-
-QString keychain_error_message(OSStatus status) {
-  if (status == errSecInteractionNotAllowed || status == errSecAuthFailed ||
-      status == errSecUserCanceled) {
-    return QStringLiteral("macOS 钥匙串拒绝了无提示访问，请重新输入 API Key 后保存");
-  }
-  return QStringLiteral("macOS Keychain error %1").arg(status);
-}
-#else
-QString session_api_key;
-#endif
-
 QString read_api_key() {
-#ifdef Q_OS_MACOS
-  auto* query = keychain_query(true);
-  CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
-  CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne);
-  CFTypeRef item = nullptr;
-  const auto status = SecItemCopyMatching(query, &item);
-  CFRelease(query);
-  if (status != errSecSuccess || item == nullptr) {
-    if (item != nullptr) {
-      CFRelease(item);
-    }
+  QFile key_file(api_key_file_path());
+  if (!key_file.open(QIODevice::ReadOnly)) {
     return {};
   }
-  const auto data = static_cast<CFDataRef>(item);
-  const auto result = QString::fromUtf8(
-      reinterpret_cast<const char*>(CFDataGetBytePtr(data)), static_cast<qsizetype>(CFDataGetLength(data)));
-  CFRelease(item);
-  return result;
-#else
-  return session_api_key;
-#endif
+  return QString::fromUtf8(key_file.readAll());
 }
 
 bool save_api_key(const QString& key, QString* error) {
-#ifdef Q_OS_MACOS
-  auto* query = keychain_query(true);
-  if (key.isEmpty()) {
-    const auto status = SecItemDelete(query);
-    CFRelease(query);
-    if (status != errSecSuccess && status != errSecItemNotFound) {
-      if (error != nullptr) {
-        *error = QStringLiteral("macOS Keychain error %1").arg(status);
-      }
-      return false;
+  const auto settings = app_settings();
+  const QFileInfo settings_info(settings.fileName());
+  const auto settings_dir = settings_info.absolutePath();
+  if (!QDir().mkpath(settings_dir)) {
+    if (error != nullptr) {
+      *error = settings_dir;
     }
-    return true;
+    return false;
   }
 
-  const auto bytes = key.toUtf8();
-  CFDataRef secret = CFDataCreate(kCFAllocatorDefault,
-                                  reinterpret_cast<const UInt8*>(bytes.constData()),
-                                  static_cast<CFIndex>(bytes.size()));
-  const void* update_keys[] = {kSecValueData};
-  const void* update_values[] = {secret};
-  CFDictionaryRef updates = CFDictionaryCreate(kCFAllocatorDefault, update_keys, update_values, 1,
-                                                &kCFTypeDictionaryKeyCallBacks,
-                                                &kCFTypeDictionaryValueCallBacks);
-  auto status = SecItemUpdate(query, updates);
-  if (status == errSecItemNotFound) {
-    // kSecUseAuthenticationUI is for lookup/update/delete. Remove it before
-    // adding the new item so the first save stays silent as well.
-    CFDictionaryRemoveValue(query, kSecUseAuthenticationUI);
-    CFDictionarySetValue(query, kSecValueData, secret);
-    CFDictionarySetValue(query, kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly);
-    status = SecItemAdd(query, nullptr);
-  }
-  CFRelease(updates);
-  CFRelease(secret);
-  CFRelease(query);
-  if (status != errSecSuccess) {
+#ifdef Q_OS_UNIX
+  const auto owner_directory_permissions = QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                           QFileDevice::ExeOwner;
+  const auto owner_file_permissions = QFileDevice::ReadOwner | QFileDevice::WriteOwner;
+  if (!QFile::setPermissions(settings_dir, owner_directory_permissions)) {
     if (error != nullptr) {
-      *error = keychain_error_message(status);
+      *error = settings_dir;
+    }
+    return false;
+  }
+#endif
+
+  const auto key_path = api_key_file_path();
+  if (key.isEmpty()) {
+    if (!QFile::exists(key_path) || QFile::remove(key_path)) {
+      return true;
+    }
+    if (error != nullptr) {
+      *error = key_path;
+    }
+    return false;
+  }
+
+  QSaveFile key_file(key_path);
+  if (!key_file.open(QIODevice::WriteOnly)) {
+    if (error != nullptr) {
+      *error = key_path;
+    }
+    return false;
+  }
+#ifdef Q_OS_UNIX
+  if (!key_file.setPermissions(owner_file_permissions)) {
+    if (error != nullptr) {
+      *error = key_path;
+    }
+    key_file.cancelWriting();
+    return false;
+  }
+#endif
+  const auto bytes = key.toUtf8();
+  if (key_file.write(bytes) != bytes.size() || !key_file.commit()) {
+    if (error != nullptr) {
+      *error = key_path;
     }
     return false;
   }
   return true;
-#else
-  session_api_key = key;
-  Q_UNUSED(error);
-  return true;
-#endif
 }
 
 QString response_error(const QByteArray& body, const QString& fallback) {
@@ -357,11 +329,7 @@ class AiModelSettingsDialog final : public QDialog {
     content->addLayout(form);
 
     auto* key_note = new QLabel(
-#ifdef Q_OS_MACOS
-        tr("The API key is stored in the macOS Keychain."), this);
-#else
-        tr("The API key is kept in memory for this app session on this platform."), this);
-#endif
+        tr("The API key is saved in the MyAIPs settings folder, outside the application package."), this);
     key_note->setObjectName(QStringLiteral("aiModelKeyNote"));
     key_note->setWordWrap(true);
     content->addWidget(key_note);
