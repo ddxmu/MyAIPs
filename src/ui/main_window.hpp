@@ -1450,6 +1450,7 @@ private:
   QAction* tiling_mode_action_{nullptr};
   QPushButton* primary_color_button_{nullptr};
   QPushButton* secondary_color_button_{nullptr};
+  bool foreground_color_swatch_active_{true};
   QDialog* color_dialog_{nullptr};
   QCheckBox* move_auto_select_check_{nullptr};
   QCheckBox* move_show_transform_controls_check_{nullptr};

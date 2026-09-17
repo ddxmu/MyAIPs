@@ -222,6 +222,21 @@ void ui_main_window_renders_color_controls() {
   CHECK(background != nullptr);
   CHECK(foreground->text() == QStringLiteral("FG"));
   CHECK(background->text() == QStringLiteral("BG"));
+  CHECK(foreground->font().pointSize() == 8);
+  CHECK(background->font().pointSize() == 6);
+  CHECK(foreground->parentWidget() == background->parentWidget());
+  CHECK(foreground->parentWidget()->objectName() == QStringLiteral("colorSwatchStack"));
+  CHECK(foreground->parentWidget()->size() == QSize(36, 40));
+  CHECK(foreground->size() == QSize(32, 26));
+  CHECK(background->size() == QSize(25, 21));
+  CHECK(foreground->geometry().intersects(background->geometry()));
+  CHECK(foreground->geometry().top() < background->geometry().top());
+  CHECK(foreground->property("patchy.swatchRaised").toBool());
+  CHECK(!background->property("patchy.swatchRaised").toBool());
+  const auto foreground_on_top = foreground->parentWidget()->grab().toImage().pixelColor(QPoint(30, 20));
+  CHECK(foreground_on_top.red() < 32);
+  CHECK(foreground_on_top.green() < 32);
+  CHECK(foreground_on_top.blue() < 32);
   CHECK(!foreground->text().contains('#'));
   CHECK(!background->text().contains('#'));
   CHECK(window.findChild<QDockWidget*>(QStringLiteral("swatchesDock")) == nullptr);
@@ -375,6 +390,51 @@ void ui_main_window_renders_color_controls() {
   CHECK(shape_button->defaultAction() == require_action_by_text(window, QStringLiteral("Rect")));
 
   save_widget_artifact("ui_main_window", window);
+}
+
+void ui_color_swatch_selection_raises_clicked_background() {
+  patchy::ui::MainWindow window;
+  show_window_empty(window);
+  auto* new_document = window.findChild<QPushButton*>(QStringLiteral("startPanelNewButton"));
+  CHECK(new_document != nullptr);
+  accept_new_document_dialog(400, 300);
+  new_document->click();
+  QApplication::processEvents();
+
+  auto* foreground = window.findChild<QPushButton*>(QStringLiteral("foregroundColorButton"));
+  auto* background = window.findChild<QPushButton*>(QStringLiteral("backgroundColorButton"));
+  CHECK(foreground != nullptr);
+  CHECK(background != nullptr);
+  CHECK(foreground->property("patchy.swatchRaised").toBool());
+  CHECK(!background->property("patchy.swatchRaised").toBool());
+
+  QTest::mouseClick(background, Qt::LeftButton, Qt::NoModifier,
+                    QPoint(background->width() / 2, background->height() - 3));
+  QApplication::processEvents();
+  CHECK(foreground->size() == QSize(25, 21));
+  CHECK(background->size() == QSize(32, 26));
+  CHECK(!foreground->property("patchy.swatchRaised").toBool());
+  CHECK(background->property("patchy.swatchRaised").toBool());
+  const auto background_on_top = background->parentWidget()->grab().toImage().pixelColor(QPoint(30, 20));
+  CHECK(background_on_top.red() > 220);
+  CHECK(background_on_top.green() > 220);
+  CHECK(background_on_top.blue() > 220);
+  auto* color_dialog = window.findChild<QDialog*>(QStringLiteral("patchyColorDialog"));
+  CHECK(color_dialog != nullptr);
+  CHECK(color_dialog->property("patchy.colorTarget").toString() == QStringLiteral("background"));
+  color_dialog->close();
+
+  QTest::mouseClick(foreground, Qt::LeftButton, Qt::NoModifier,
+                    QPoint(foreground->width() / 2, foreground->height() - 3));
+  QApplication::processEvents();
+  CHECK(foreground->size() == QSize(32, 26));
+  CHECK(background->size() == QSize(25, 21));
+  CHECK(foreground->property("patchy.swatchRaised").toBool());
+  CHECK(!background->property("patchy.swatchRaised").toBool());
+  color_dialog = window.findChild<QDialog*>(QStringLiteral("patchyColorDialog"));
+  CHECK(color_dialog != nullptr);
+  CHECK(color_dialog->property("patchy.colorTarget").toString() == QStringLiteral("foreground"));
+  color_dialog->close();
 }
 
 struct ToolPaletteOverflowSetup {
@@ -3960,6 +4020,7 @@ std::vector<patchy::test::TestCase> app_shell_tests() {
       {"ui_start_panel_shows_about_info_and_update_status", ui_start_panel_shows_about_info_and_update_status},
       {"ui_ai_assistant_opens_from_start_panel", ui_ai_assistant_opens_from_start_panel},
       {"ui_main_window_renders_color_controls", ui_main_window_renders_color_controls},
+      {"ui_color_swatch_selection_raises_clicked_background", ui_color_swatch_selection_raises_clicked_background},
       {"ui_tool_palette_overflow_hides_quick_mask_before_swatches",
        ui_tool_palette_overflow_hides_quick_mask_before_swatches},
       {"ui_tool_palette_extension_button_expands_palette", ui_tool_palette_extension_button_expands_palette},

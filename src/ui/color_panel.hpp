@@ -78,7 +78,8 @@ bool apply_color_to_open_color_picker(QColor color);
 // MainWindow's Edit > Cut/Copy/Paste handlers use it for focus routing.
 [[nodiscard]] PatchyColorPicker* color_picker_ancestor_of(QWidget* widget);
 
-[[nodiscard]] QString color_button_style(QColor color);
+[[nodiscard]] QString color_button_style(QColor color, int font_point_size = 0, int content_width = 26,
+                                         int content_height = 24, bool raised = false);
 [[nodiscard]] QString inline_text_editor_style(QColor color, int pixel_size);
 [[nodiscard]] QDialog* create_patchy_color_panel(QWidget* parent, QColor initial, const QString& title,
                                                     std::function<void(QColor)> color_changed);

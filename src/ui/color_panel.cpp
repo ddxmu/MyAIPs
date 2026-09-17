@@ -2084,20 +2084,27 @@ QColor PatchyColorPicker::cut_color_to_clipboard(bool& cleared_custom_slot) {
   return impl_->cut_color_to_clipboard(cleared_custom_slot);
 }
 
-QString color_button_style(QColor color) {
+QString color_button_style(QColor color, int font_point_size, int content_width, int content_height, bool raised) {
   const auto text = color.lightness() < 128 ? QStringLiteral("white") : QStringLiteral("black");
+  const auto font_size = font_point_size > 0 ? QStringLiteral("font-size: %1pt;").arg(font_point_size) : QString{};
+  const auto border = raised
+                          ? QStringLiteral("border: 2px solid @text_bright; border-right-color: @window_border; "
+                                           "border-bottom-color: @window_border;")
+                          : QStringLiteral("border: 1px solid @text_bright;");
   return QStringLiteral(R"(
     QPushButton {
       background: rgb(%1, %2, %3);
       color: %4;
-      border: 1px solid @text_bright;
+      %8
       border-radius: 0;
-      min-width: 26px;
-      max-width: 26px;
-      min-height: 24px;
-      max-height: 24px;
+      min-width: %6px;
+      max-width: %6px;
+      min-height: %7px;
+      max-height: %7px;
       font-weight: 700;
+      text-align: center;
       padding: 0;
+      %5
     }
     QPushButton:hover {
       border-color: @accent_bright;
@@ -2106,7 +2113,11 @@ QString color_button_style(QColor color) {
       .arg(color.red())
       .arg(color.green())
       .arg(color.blue())
-      .arg(text);
+      .arg(text)
+      .arg(font_size)
+      .arg(content_width)
+      .arg(content_height)
+      .arg(border);
 }
 
 QString inline_text_editor_style(QColor color, int pixel_size) {

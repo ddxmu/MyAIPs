@@ -1053,14 +1053,16 @@ void MainWindow::build_tool_palette(ActionBuildContext& ctx) {
   // Swatches first on purpose: vertical overflow hides items tail-first into
   // the extension button, so Quick Mask, then Swap/Default, disappear before
   // the FG/BG swatches.
-  primary_color_button_ = new QPushButton(tr("FG"), tool_palette);
-  secondary_color_button_ = new QPushButton(tr("BG"), tool_palette);
+  auto* color_swatch_stack = new QWidget(tool_palette);
+  color_swatch_stack->setObjectName(QStringLiteral("colorSwatchStack"));
+  color_swatch_stack->setFixedSize(36, 40);
+  primary_color_button_ = new QPushButton(tr("FG"), color_swatch_stack);
+  secondary_color_button_ = new QPushButton(tr("BG"), color_swatch_stack);
   primary_color_button_->setObjectName(QStringLiteral("foregroundColorButton"));
   secondary_color_button_->setObjectName(QStringLiteral("backgroundColorButton"));
   primary_color_button_->setToolTip(tr("Foreground color"));
   secondary_color_button_->setToolTip(tr("Background color"));
-  tool_palette->addWidget(primary_color_button_);
-  tool_palette->addWidget(secondary_color_button_);
+  tool_palette->addWidget(color_swatch_stack);
   auto* default_colors_action = tool_palette->addAction(tr("Default Colors"));
   auto* swap_colors_action = tool_palette->addAction(tr("Swap Colors"));
   default_colors_action->setObjectName(QStringLiteral("colorDefaultAction"));

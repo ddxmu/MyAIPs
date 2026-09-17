@@ -452,13 +452,6 @@ QString photoshop_style_template() {
       color: #ffffff;
       border-color: rgba(205, 215, 255, 0.55);
     }
-    QToolBar#toolPalette QPushButton {
-      min-width: 26px;
-      max-width: 26px;
-      min-height: 24px;
-      max-height: 24px;
-      padding: 0;
-    }
     QToolButton[toolFlyout="true"]::menu-indicator {
       image: url(@icon(tool-flyout-corner));
       width: 7px;
