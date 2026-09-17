@@ -82,6 +82,68 @@ QString shell_quote(const QString& value) {
   return QStringLiteral("'") + quoted + QStringLiteral("'");
 }
 
+QString delta_installer_script(const QString& archive, const QString& pid, const QString& app_bundle,
+                               const QString& base_version, const QString& target_version) {
+  return QStringLiteral(
+             "#!/bin/sh\n"
+             "set -eu\n"
+             "ARCHIVE=%1\n"
+             "PID=%2\n"
+             "DEST=%3\n"
+             "BASE_VERSION=%4\n"
+             "TARGET_VERSION=%5\n"
+             "PARENT=$(dirname \"$DEST\")\n"
+             "STAGED=\"$PARENT/.MyAIPs.app.update-$TARGET_VERSION-$PID\"\n"
+             "BACKUP=\"$PARENT/.MyAIPs.app.previous-$BASE_VERSION-$PID\"\n"
+             "WORK=\n"
+             "cleanup() { [ -z \"$WORK\" ] || rm -rf \"$WORK\"; rm -rf \"$STAGED\"; rm -f \"$ARCHIVE\" \"$0\"; }\n"
+             "trap cleanup EXIT\n"
+             "trap 'exit 1' HUP INT TERM\n"
+             "while kill -0 \"$PID\" >/dev/null 2>&1; do sleep 1; done\n"
+             "CURRENT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \"$DEST/Contents/Info.plist\")\n"
+             "[ \"$CURRENT\" = \"$BASE_VERSION\" ] || exit 1\n"
+             "[ ! -e \"$STAGED\" ] && [ ! -e \"$BACKUP\" ] || exit 1\n"
+             "/usr/bin/ditto \"$DEST\" \"$STAGED\"\n"
+             "WORK=$(mktemp -d \"${TMPDIR:-/tmp}/MyAIPsDelta.XXXXXX\")\n"
+             "/usr/bin/ditto -x -k \"$ARCHIVE\" \"$WORK\"\n"
+             "DELTA=\"$WORK/MyAIPsDelta\"\n"
+             "[ -f \"$DELTA/patches.tsv\" ] || exit 1\n"
+             "PATCH_COUNT=0\n"
+             "while IFS=\"$(printf '\\t')\" read -r BASE_SHA TARGET_SHA RELATIVE_PATH PATCH_PATH; do\n"
+             "  [ -n \"$BASE_SHA\" ] || continue\n"
+             "  [ ${#BASE_SHA} -eq 64 ] && [ ${#TARGET_SHA} -eq 64 ] || exit 1\n"
+             "  case \"$BASE_SHA$TARGET_SHA\" in *[!0-9a-f]*) exit 1 ;; esac\n"
+             "  case \"$RELATIVE_PATH\" in Contents/*) ;; *) exit 1 ;; esac\n"
+             "  case \"$RELATIVE_PATH\" in *..*|*//*) exit 1 ;; esac\n"
+             "  case \"$PATCH_PATH\" in patches/*.bsdiff) ;; *) exit 1 ;; esac\n"
+             "  case \"$PATCH_PATH\" in *..*|*//*) exit 1 ;; esac\n"
+             "  SOURCE_FILE=\"$DEST/$RELATIVE_PATH\"\n"
+             "  STAGED_FILE=\"$STAGED/$RELATIVE_PATH\"\n"
+             "  PATCH_FILE=\"$DELTA/$PATCH_PATH\"\n"
+             "  [ -f \"$SOURCE_FILE\" ] && [ ! -L \"$SOURCE_FILE\" ] || exit 1\n"
+             "  [ -f \"$STAGED_FILE\" ] && [ ! -L \"$STAGED_FILE\" ] || exit 1\n"
+             "  [ -f \"$PATCH_FILE\" ] && [ ! -L \"$PATCH_FILE\" ] || exit 1\n"
+             "  BASE_ACTUAL=$(/usr/bin/shasum -a 256 \"$SOURCE_FILE\" | /usr/bin/awk '{print $1}')\n"
+             "  [ \"$BASE_ACTUAL\" = \"$BASE_SHA\" ] || exit 1\n"
+             "  /usr/bin/ditto \"$SOURCE_FILE\" \"$STAGED_FILE.new\"\n"
+             "  /usr/bin/bspatch \"$SOURCE_FILE\" \"$STAGED_FILE.new\" \"$PATCH_FILE\"\n"
+             "  TARGET_ACTUAL=$(/usr/bin/shasum -a 256 \"$STAGED_FILE.new\" | /usr/bin/awk '{print $1}')\n"
+             "  [ \"$TARGET_ACTUAL\" = \"$TARGET_SHA\" ] || exit 1\n"
+             "  mv \"$STAGED_FILE.new\" \"$STAGED_FILE\"\n"
+             "  PATCH_COUNT=$((PATCH_COUNT + 1))\n"
+             "done < \"$DELTA/patches.tsv\"\n"
+             "[ \"$PATCH_COUNT\" -gt 0 ] || exit 1\n"
+             "TARGET=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \"$STAGED/Contents/Info.plist\")\n"
+             "[ \"$TARGET\" = \"$TARGET_VERSION\" ] || exit 1\n"
+             "/usr/bin/codesign --verify --deep --strict \"$STAGED\"\n"
+             "mv \"$DEST\" \"$BACKUP\"\n"
+             "if ! mv \"$STAGED\" \"$DEST\"; then mv \"$BACKUP\" \"$DEST\" || true; exit 1; fi\n"
+             "rm -rf \"$BACKUP\"\n"
+             "open \"$DEST\"\n")
+      .arg(shell_quote(archive), shell_quote(pid), shell_quote(app_bundle), shell_quote(base_version),
+           shell_quote(target_version));
+}
+
 QString running_application_bundle_path() {
   QDir bundle_dir(QCoreApplication::applicationDirPath());
   if (!bundle_dir.cdUp() || !bundle_dir.cdUp()) {
@@ -362,7 +424,8 @@ public:
       return;
     }
     QDir().mkpath(temp_dir);
-    download_path_ = QDir(temp_dir).filePath(QStringLiteral("MyAIPs-update-%1.dmg").arg(update.version));
+    const auto extension = update.is_delta() ? QStringLiteral("zip") : QStringLiteral("dmg");
+    download_path_ = QDir(temp_dir).filePath(QStringLiteral("MyAIPs-update-%1.%2").arg(update.version, extension));
     download_file_.setFileName(download_path_);
     if (!download_file_.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
       set_status(QObject::tr("Could not prepare the update download."));
@@ -436,26 +499,31 @@ public:
       return;
     }
     const auto pid = QString::number(QCoreApplication::applicationPid());
-    const auto script_text = QStringLiteral(
-        "#!/bin/sh\n"
-        "set -eu\n"
-        "DMG=%1\n"
-        "PID=%2\n"
-        "DEST=%3\n"
-        "MOUNT=$(mktemp -d \"${TMPDIR:-/tmp}/MyAIPsMount.XXXXXX\")\n"
-        "cleanup() { hdiutil detach \"$MOUNT\" >/dev/null 2>&1 || true; rm -rf \"$MOUNT\"; rm -f \"$DMG\" \"$0\"; }\n"
-        "while kill -0 \"$PID\" >/dev/null 2>&1; do sleep 1; done\n"
-        "hdiutil attach \"$DMG\" -nobrowse -readonly -mountpoint \"$MOUNT\" >/dev/null\n"
-        "SOURCE=\"$MOUNT/MyAIPs.app\"\n"
-        "if [ ! -d \"$SOURCE\" ]; then cleanup; exit 1; fi\n"
-        "STAGED=\"$(dirname \"$DEST\")/.MyAIPs.app.update\"\n"
-        "rm -rf \"$STAGED\"\n"
-        "ditto \"$SOURCE\" \"$STAGED\"\n"
-        "rm -rf \"$DEST\"\n"
-        "mv \"$STAGED\" \"$DEST\"\n"
-        "cleanup\n"
-        "open \"$DEST\"\n")
-        .arg(shell_quote(download_path_), shell_quote(pid), shell_quote(app_bundle));
+    const auto script_text = latest_update_.has_value() && latest_update_->is_delta()
+                                 ? delta_installer_script(download_path_, pid, app_bundle,
+                                                          latest_update_->base_version,
+                                                          latest_update_->version)
+                                 : QStringLiteral(
+                                       "#!/bin/sh\n"
+                                       "set -eu\n"
+                                       "DMG=%1\n"
+                                       "PID=%2\n"
+                                       "DEST=%3\n"
+                                       "MOUNT=$(mktemp -d \"${TMPDIR:-/tmp}/MyAIPsMount.XXXXXX\")\n"
+                                       "cleanup() { hdiutil detach \"$MOUNT\" >/dev/null 2>&1 || true; rm -rf \"$MOUNT\"; rm -f \"$DMG\" \"$0\"; }\n"
+                                       "while kill -0 \"$PID\" >/dev/null 2>&1; do sleep 1; done\n"
+                                       "hdiutil attach \"$DMG\" -nobrowse -readonly -mountpoint \"$MOUNT\" >/dev/null\n"
+                                       "SOURCE=\"$MOUNT/MyAIPs.app\"\n"
+                                       "if [ ! -d \"$SOURCE\" ]; then cleanup; exit 1; fi\n"
+                                       "STAGED=\"$(dirname \"$DEST\")/.MyAIPs.app.update\"\n"
+                                       "rm -rf \"$STAGED\"\n"
+                                       "ditto \"$SOURCE\" \"$STAGED\"\n"
+                                       "rm -rf \"$DEST\"\n"
+                                       "mv \"$STAGED\" \"$DEST\"\n"
+                                       "cleanup\n"
+                                       "open \"$DEST\"\n")
+                                       .arg(shell_quote(download_path_), shell_quote(pid),
+                                            shell_quote(app_bundle));
     script.write(script_text.toUtf8());
     script.close();
     script.setPermissions(script.permissions() | QFileDevice::ExeOwner | QFileDevice::ExeGroup |

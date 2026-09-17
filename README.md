@@ -208,6 +208,7 @@ flatpak install -y flathub org.freedesktop.Platform.ffmpeg-full//24.08
 ### 0.102 - MyAIPs, September 17, 2026
 
 - The AI Assistant shows request progress. Provider keys are saved in the local MyAIPs settings folder outside the app bundle and no longer use macOS Keychain; enter and save the key once after upgrading ([@ddxmu](https://github.com/ddxmu))
+- MyAIPs can install small version-matched macOS delta updates, verifies patched files before replacing the app, and restarts when finished ([@ddxmu](https://github.com/ddxmu))
 
 ### 0.100 - MyAIPs, September 16, 2026
 

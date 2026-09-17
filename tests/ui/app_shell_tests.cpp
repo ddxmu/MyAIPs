@@ -1566,6 +1566,27 @@ void update_manifest_parser_handles_supported_cases() {
   CHECK(update_result.status == patchy::ui::UpdateCheckStatus::UpdateAvailable);
   CHECK(update_result.update.has_value());
   CHECK(update_result.latest_version == QStringLiteral("0.2"));
+
+  const QByteArray delta_manifest = R"({
+    "project": "ddxmu/MyAIPs",
+    "platforms": {
+      "macos": {
+        "version": "0.102",
+        "package_type": "bsdiff-zip",
+        "base_version": "0.100",
+        "delta_download_url": "https://github.com/ddxmu/MyAIPs/releases/download/v0.102/MyAIPs-0.102-from-0.100.delta.zip"
+      }
+    }
+  })";
+  const auto delta_update = patchy::ui::parse_update_manifest(
+      delta_manifest, QStringLiteral("macos"), QStringLiteral("0.100"));
+  CHECK(delta_update.has_value());
+  CHECK(delta_update->is_delta());
+  CHECK(delta_update->base_version == QStringLiteral("0.100"));
+  CHECK(delta_update->download_url.path().endsWith(QStringLiteral(".delta.zip")));
+  const auto incompatible_delta = patchy::ui::inspect_update_manifest(
+      delta_manifest, QStringLiteral("macos"), QStringLiteral("0.101"));
+  CHECK(incompatible_delta.status == patchy::ui::UpdateCheckStatus::InvalidDownloadUrl);
   CHECK(!patchy::ui::update_version_is_newer(QStringLiteral("0.2.0"), QStringLiteral("0.2")));
   CHECK(!patchy::ui::update_version_is_newer(QStringLiteral("0.2"), QStringLiteral("0.2.0")));
   CHECK(patchy::ui::update_version_is_newer(QStringLiteral("0.10"), QStringLiteral("0.2")));
@@ -1671,7 +1692,8 @@ void ui_update_available_dialog_warns_to_close_patchy_before_installing() {
   });
 
   window.show_update_available({QStringLiteral("windows"), QStringLiteral("9.9"),
-                                QUrl(QStringLiteral("https://rtsoft.com/files/PatchyWindowsInstaller.exe"))});
+                                QUrl(QStringLiteral("https://rtsoft.com/files/PatchyWindowsInstaller.exe")),
+                                patchy::ui::UpdatePackageFormat::FullPackage, {}});
   CHECK(saw_dialog);
 }
 

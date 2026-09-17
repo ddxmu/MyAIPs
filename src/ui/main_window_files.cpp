@@ -3119,6 +3119,12 @@ void MainWindow::print_document() {
 }
 
 void MainWindow::show_update_available(const UpdateInfo& update) {
+#if defined(Q_OS_MACOS)
+  if (update.is_delta()) {
+    show_about_splash(this);
+    return;
+  }
+#endif
   // The install advice is artifact-specific: Windows ships an installer exe, macOS a
   // drag-to-Applications DMG, Linux a Flatpak bundle.
 #if defined(Q_OS_MACOS)

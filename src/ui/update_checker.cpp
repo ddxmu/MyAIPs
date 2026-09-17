@@ -133,25 +133,39 @@ UpdateCheckResult inspect_update_manifest(const QByteArray& json, const QString&
   }
 
   const auto latest_version = platform_entry.value(QStringLiteral("version")).toString().trimmed();
-  const auto download_url = QUrl(platform_entry.value(QStringLiteral("download_url")).toString().trimmed());
   result.latest_version = latest_version;
   if (latest_version.isEmpty() || !parse_dotted_version(latest_version).has_value() ||
       !parse_dotted_version(current_version).has_value()) {
     result.status = UpdateCheckStatus::InvalidVersion;
     return result;
   }
-  if (!is_download_url_usable(download_url)) {
-    result.status = UpdateCheckStatus::InvalidDownloadUrl;
-    return result;
-  }
-
   if (!update_version_is_newer(latest_version, current_version)) {
     result.status = UpdateCheckStatus::NoUpdateAvailable;
     return result;
   }
 
+  const auto package_type = platform_entry.value(QStringLiteral("package_type")).toString().trimmed();
+  if (platform == QStringLiteral("macos") && package_type == QStringLiteral("bsdiff-zip")) {
+    const auto base_version = platform_entry.value(QStringLiteral("base_version")).toString().trimmed();
+    const auto download_url = QUrl(platform_entry.value(QStringLiteral("delta_download_url")).toString().trimmed());
+    if (base_version != current_version || !is_download_url_usable(download_url)) {
+      result.status = UpdateCheckStatus::InvalidDownloadUrl;
+      return result;
+    }
+    result.status = UpdateCheckStatus::UpdateAvailable;
+    result.update = UpdateInfo{platform, latest_version, download_url, UpdatePackageFormat::MacBsdiffZip,
+                               base_version};
+    return result;
+  }
+
+  const auto download_url = QUrl(platform_entry.value(QStringLiteral("download_url")).toString().trimmed());
+  if (!is_download_url_usable(download_url)) {
+    result.status = UpdateCheckStatus::InvalidDownloadUrl;
+    return result;
+  }
+
   result.status = UpdateCheckStatus::UpdateAvailable;
-  result.update = UpdateInfo{platform, latest_version, download_url};
+  result.update = UpdateInfo{platform, latest_version, download_url, UpdatePackageFormat::FullPackage, {}};
   return result;
 }
 

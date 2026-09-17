@@ -11,10 +11,19 @@ class QObject;
 
 namespace patchy::ui {
 
+enum class UpdatePackageFormat {
+  FullPackage,
+  MacBsdiffZip,
+};
+
 struct UpdateInfo {
   QString platform;
   QString version;
   QUrl download_url;
+  UpdatePackageFormat package_format{UpdatePackageFormat::FullPackage};
+  QString base_version;
+
+  [[nodiscard]] bool is_delta() const { return package_format == UpdatePackageFormat::MacBsdiffZip; }
 };
 
 enum class UpdateCheckStatus {

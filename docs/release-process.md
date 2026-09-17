@@ -11,6 +11,12 @@ sequence is `0.99 -> 0.100 -> 0.101`. Use
 `scripts/release/bump-myaips-version.sh --dry-run` to inspect the next value without
 changing files.
 
+For MyAIPs delta-only macOS releases, follow [myaips-updates.md](myaips-updates.md).
+Generate and test the BSDIFF ZIP against the declared base app before creating the
+GitHub release. Keep its URL in `delta_download_url`; older clients interpret
+`download_url` as a complete DMG. Do not update the manifest until the matching
+delta asset is public.
+
 Desktop packages include `patchy-mcp` and the assembled `patchy-control` skill.
 Staging and resource paths are specified in [ai-control.md](ai-control.md). Each
 desktop packaging script runs the installed connector's `--check` smoke test;
