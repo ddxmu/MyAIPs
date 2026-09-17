@@ -501,6 +501,7 @@ class AiModelSettingsDialog final : public QDialog {
   }
 
   void save_configuration() {
+    max_tool_calls_->interpretText();
     if (!validate()) {
       return;
     }

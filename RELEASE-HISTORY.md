@@ -3,6 +3,10 @@
 Older Patchy release notes are collected here. The two most recent releases
 remain in [README.md](README.md#whats-new).
 
+## 0.100 - MyAIPs, September 16, 2026
+
+- Centered the adjustment-layer panel's New Adjustment Layer menu arrow below its icon ([@ddxmu](https://github.com/ddxmu))
+
 ## 0.95 - MyAIPs local build, September 16, 2026
 
 - Added an in-app AI Assistant with configurable OpenAI-compatible model endpoints. It can read current document/layer information and an optional canvas preview, then use MyAIPs editing tools directly from the chat

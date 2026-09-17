@@ -3200,6 +3200,7 @@ void ui_ai_assistant_opens_from_start_panel() {
   bool chat_controls_present = false;
   bool settings_controls_present = false;
   bool api_key_saved_locally = false;
+  bool tool_limit_saved = false;
   QTimer::singleShot(0, &window, [&] {
     auto* dialog = window.findChild<QDialog*>(QStringLiteral("aiChatDialog"));
     auto* progress_bar = dialog != nullptr
@@ -3229,10 +3230,23 @@ void ui_ai_assistant_opens_from_start_panel() {
         CHECK(api_key != nullptr);
         CHECK(model != nullptr);
         CHECK(save != nullptr);
+        if (max_calls != nullptr) {
+          auto* editor = max_calls->findChild<QLineEdit*>();
+          CHECK(editor != nullptr);
+          if (editor != nullptr) {
+            editor->setFocus();
+            editor->selectAll();
+            QTest::keyClicks(editor, QStringLiteral("100"));
+            CHECK(editor->text() == QStringLiteral("100"));
+          }
+        }
         if (api_key != nullptr && model != nullptr && save != nullptr) {
           api_key->setText(QStringLiteral("test-api-key"));
           model->setEditText(QStringLiteral("test-model"));
-          save->click();
+          QTest::mouseClick(save, Qt::LeftButton);
+          auto saved_settings = patchy::ui::app_settings();
+          saved_settings.sync();
+          tool_limit_saved = saved_settings.value(QStringLiteral("ai/maxToolCalls")).toInt() == 100;
           const auto settings_path = patchy::ui::app_settings().fileName();
           const auto key_path = QDir(QFileInfo(settings_path).absolutePath()).filePath(QStringLiteral("ai_api_key"));
           QFile key_file(key_path);
@@ -3267,6 +3281,7 @@ void ui_ai_assistant_opens_from_start_panel() {
   CHECK(chat_controls_present);
   CHECK(settings_controls_present);
   CHECK(api_key_saved_locally);
+  CHECK(tool_limit_saved);
 }
 
 void ui_status_bar_error_message_flashes_then_persists_until_replaced() {

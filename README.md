@@ -138,7 +138,7 @@ These are corpus-specific results, not universal product ratings. See the [full 
 
 ## Download
 
-**Latest MyAIPs release: 0.102** · September 17, 2026 · [Release notes](#whats-new)
+**Latest MyAIPs release: 0.103** · September 17, 2026 · [Release notes](#whats-new)
 
 Windows releases are code signed by Seth A. Robinson; the macOS app is signed and
 notarized (Robinson Technologies Corporation).
@@ -205,14 +205,14 @@ flatpak install -y flathub org.freedesktop.Platform.ffmpeg-full//24.08
 
 ## What's New
 
+### 0.103 - MyAIPs, September 17, 2026
+
+- Saving the AI tool-call limit now commits the edited value first, so a new limit such as 100 is saved instead of the previous value ([@ddxmu](https://github.com/ddxmu))
+
 ### 0.102 - MyAIPs, September 17, 2026
 
 - The AI Assistant shows request progress. Provider keys are saved in the local MyAIPs settings folder outside the app bundle and no longer use macOS Keychain; enter and save the key once after upgrading ([@ddxmu](https://github.com/ddxmu))
 - MyAIPs can install small version-matched macOS delta updates, verifies patched files before replacing the app, and restarts when finished ([@ddxmu](https://github.com/ddxmu))
-
-### 0.100 - MyAIPs, September 16, 2026
-
-- Centered the adjustment-layer panel's New Adjustment Layer menu arrow below its icon ([@ddxmu](https://github.com/ddxmu))
 
 [Older releases](RELEASE-HISTORY.md)
 
