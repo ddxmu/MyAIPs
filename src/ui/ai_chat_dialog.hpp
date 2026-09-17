@@ -14,9 +14,11 @@ class QLabel;
 class QNetworkAccessManager;
 class QNetworkReply;
 class QPlainTextEdit;
+class QProgressBar;
 class QPushButton;
 class QCheckBox;
 class QSpinBox;
+class QTimer;
 
 namespace patchy::ui {
 class MainWindow;
@@ -46,6 +48,7 @@ class AiChatDialog final : public QDialog {
   void append_preview_message(const QString& description, const QJsonObject& result);
   void update_state_token(const QJsonObject& value);
   void set_busy(bool busy);
+  void set_progress_target(int percent);
   void update_controls();
   void append_chat_message(const QString& speaker, const QString& text);
   void finish_turn(const QString& answer, bool keep_in_history = true);
@@ -65,12 +68,14 @@ class AiChatDialog final : public QDialog {
   QVector<QJsonObject> pending_preview_messages_;
   QPlainTextEdit* transcript_{nullptr};
   QPlainTextEdit* input_{nullptr};
+  QProgressBar* progress_bar_{nullptr};
   QCheckBox* include_preview_{nullptr};
   QPushButton* send_button_{nullptr};
   QPushButton* cancel_button_{nullptr};
   QPushButton* settings_button_{nullptr};
   QPushButton* clear_button_{nullptr};
   QLabel* status_{nullptr};
+  QTimer* progress_timer_{nullptr};
   QString endpoint_;
   QString model_;
   QString api_key_;
@@ -82,6 +87,7 @@ class AiChatDialog final : public QDialog {
   int rpc_id_{0};
   int tool_index_{0};
   int tool_count_{0};
+  int progress_target_{8};
   bool mcp_ready_{false};
   bool busy_{false};
 };

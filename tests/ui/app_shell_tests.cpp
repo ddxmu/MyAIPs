@@ -145,6 +145,7 @@
 #include <QPixmap>
 #include <QPointingDevice>
 #include <QProgressDialog>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QRadioButton>
@@ -3178,12 +3179,18 @@ void ui_ai_assistant_opens_from_start_panel() {
   bool settings_controls_present = false;
   QTimer::singleShot(0, &window, [&] {
     auto* dialog = window.findChild<QDialog*>(QStringLiteral("aiChatDialog"));
+    auto* progress_bar = dialog != nullptr
+                            ? dialog->findChild<QProgressBar*>(QStringLiteral("aiChatProgressBar"))
+                            : nullptr;
     dialog_opened = dialog != nullptr && dialog->isVisible();
     chat_controls_present = dialog != nullptr &&
                             dialog->findChild<QPushButton*>(QStringLiteral("aiChatSettingsButton")) != nullptr &&
                             dialog->findChild<QPushButton*>(QStringLiteral("aiChatSendButton")) != nullptr &&
                             dialog->findChild<QWidget*>(QStringLiteral("aiChatInput")) != nullptr &&
-                            dialog->findChild<QWidget*>(QStringLiteral("aiChatIncludePreview")) != nullptr;
+                            dialog->findChild<QWidget*>(QStringLiteral("aiChatIncludePreview")) != nullptr &&
+                            progress_bar != nullptr && progress_bar->isVisible() && progress_bar->minimum() == 0 &&
+                            progress_bar->maximum() == 100 && progress_bar->value() == 0 &&
+                            progress_bar->format() == QStringLiteral("%p%");
     if (dialog != nullptr) {
       auto* settings_button = dialog->findChild<QPushButton*>(QStringLiteral("aiChatSettingsButton"));
       CHECK(settings_button != nullptr);

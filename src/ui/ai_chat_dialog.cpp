@@ -18,6 +18,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QSettings>
 #include <QSpinBox>
@@ -608,7 +609,15 @@ AiChatDialog::AiChatDialog(MainWindow& window, QWidget* parent)
   content->addWidget(input_);
 
   auto* actions = new QHBoxLayout();
-  actions->addStretch(1);
+  progress_bar_ = new QProgressBar(this);
+  progress_bar_->setObjectName(QStringLiteral("aiChatProgressBar"));
+  progress_bar_->setRange(0, 100);
+  progress_bar_->setValue(0);
+  progress_bar_->setFormat(QStringLiteral("%p%"));
+  progress_bar_->setTextVisible(true);
+  progress_bar_->setMinimumWidth(72);
+  progress_bar_->setFixedHeight(26);
+  actions->addWidget(progress_bar_, 1);
   cancel_button_ = new QPushButton(tr("Stop"), this);
   cancel_button_->setObjectName(QStringLiteral("aiChatCancelButton"));
   cancel_button_->setVisible(false);
@@ -621,8 +630,31 @@ AiChatDialog::AiChatDialog(MainWindow& window, QWidget* parent)
   actions->addWidget(send_button_);
   content->addLayout(actions);
 
+  progress_timer_ = new QTimer(this);
+  progress_timer_->setInterval(600);
+  connect(progress_timer_, &QTimer::timeout, this, [this] {
+    if (!busy_ || progress_bar_ == nullptr || progress_bar_->value() >= 95) {
+      return;
+    }
+    const int current = progress_bar_->value();
+    const int next = current < progress_target_ ? qMin(progress_target_, current + 2) : current + 1;
+    progress_bar_->setValue(qMin(next, 95));
+  });
+
   set_themed_style(*this, QStringLiteral(R"(
     QLabel#aiChatStatusLabel { color: @text_secondary; }
+    QProgressBar#aiChatProgressBar {
+      background: @field_bg_large;
+      border: 1px solid @field_border;
+      border-radius: 3px;
+      color: @text_primary;
+      text-align: center;
+      padding: 0 1px;
+    }
+    QProgressBar#aiChatProgressBar::chunk {
+      background: @accent;
+      border-radius: 2px;
+    }
     QPlainTextEdit#aiChatTranscript, QPlainTextEdit#aiChatInput {
       background: @field_bg_large;
       color: @text_primary;
@@ -772,6 +804,7 @@ void AiChatDialog::send_message() {
   input_->clear();
   append_chat_message(tr("You"), prompt);
   set_busy(true);
+  set_progress_target(12);
   status_->setText(tr("Reading the current document..."));
   state_token_.clear();
   active_preview_base64_.clear();
@@ -786,10 +819,12 @@ void AiChatDialog::send_message() {
       active_state_.insert(QStringLiteral("workspaceError"), error);
     }
     update_state_token(active_state_);
+    set_progress_target(24);
     if (!include_preview_->isChecked()) {
       prepare_turn();
       return;
     }
+    set_progress_target(28);
     status_->setText(tr("Reading the current canvas preview..."));
     call_tool(QStringLiteral("get_preview"), QJsonObject{{"target", "canvas"}},
               [this](const QJsonObject& preview) {
@@ -798,12 +833,14 @@ void AiChatDialog::send_message() {
                 }
                 append_preview_message(QStringLiteral("Current canvas preview for the user's request."),
                                        preview.value(QStringLiteral("result")).toObject());
+                set_progress_target(36);
                 prepare_turn();
               });
   });
 }
 
 void AiChatDialog::prepare_turn() {
+  set_progress_target(42);
   turn_messages_ = conversation_;
   QString context = QStringLiteral("用户任务：\n%1\n\nMyAIPs 当前文档状态：\n%2")
                         .arg(active_prompt_,
@@ -823,6 +860,7 @@ void AiChatDialog::request_completion() {
   if (!busy_) {
     return;
   }
+  set_progress_target(52);
   status_->setText(tr("Asking %1...").arg(model_));
   const QJsonObject body{{"model", model_},
                          {"messages", turn_messages_},
@@ -927,6 +965,7 @@ void AiChatDialog::execute_next_tool_call() {
     arguments.insert(QStringLiteral("expectedState"), state_token_);
   }
   ++tool_count_;
+  set_progress_target(qMin(90, 58 + qMin(tool_count_, 8) * 4));
   status_->setText(tr("AI is using MyAIPs: %1").arg(operation_label(name)));
   call_tool(name, arguments, [this, name, call_id, mutating](const QJsonObject& response) {
     if (!busy_) {
@@ -944,6 +983,7 @@ void AiChatDialog::execute_next_tool_call() {
     append_preview_message(operation_label(name), result);
 
     if (mutating && error.isEmpty()) {
+      set_progress_target(qMin(92, 72 + qMin(tool_count_, 5) * 4));
       status_->setText(tr("Checking the updated canvas..."));
       call_tool(QStringLiteral("get_preview"), QJsonObject{{"target", "canvas"}},
                 [this](const QJsonObject& preview_response) {
@@ -952,6 +992,7 @@ void AiChatDialog::execute_next_tool_call() {
                   }
                   append_preview_message(QStringLiteral("Canvas after the latest MyAIPs edit."),
                                          preview_response.value(QStringLiteral("result")).toObject());
+                  set_progress_target(qMin(94, 78 + qMin(tool_count_, 4) * 4));
                   execute_next_tool_call();
                 });
       return;
@@ -995,12 +1036,28 @@ void AiChatDialog::update_state_token(const QJsonObject& value) {
 
 void AiChatDialog::set_busy(bool busy) {
   busy_ = busy;
+  if (progress_timer_ != nullptr) {
+    if (busy) {
+      progress_bar_->setValue(1);
+      progress_target_ = 8;
+      progress_timer_->start();
+    } else {
+      progress_timer_->stop();
+    }
+  }
   input_->setEnabled(!busy);
   include_preview_->setEnabled(!busy);
   settings_button_->setEnabled(!busy);
   clear_button_->setEnabled(!busy);
   cancel_button_->setVisible(busy);
   update_controls();
+}
+
+void AiChatDialog::set_progress_target(int percent) {
+  if (progress_bar_ == nullptr) {
+    return;
+  }
+  progress_target_ = qBound(progress_bar_->value(), qBound(1, percent, 95), 95);
 }
 
 void AiChatDialog::update_controls() {
@@ -1044,6 +1101,9 @@ void AiChatDialog::finish_turn(const QString& answer, bool keep_in_history) {
   pending_preview_messages_.clear();
   active_prompt_.clear();
   current_mcp_id_.clear();
+  if (progress_bar_ != nullptr) {
+    progress_bar_->setValue(100);
+  }
   set_busy(false);
   status_->setText(tr("Ready · model: %1").arg(model_));
 }
@@ -1054,6 +1114,9 @@ void AiChatDialog::cancel_turn() {
   }
   const auto request_id = current_mcp_id_;
   current_mcp_id_.clear();
+  if (progress_bar_ != nullptr) {
+    progress_bar_->setValue(0);
+  }
   set_busy(false);
   if (network_reply_ != nullptr) {
     network_reply_->abort();
