@@ -3,6 +3,29 @@
 Older Patchy release notes are collected here. The two most recent releases
 remain in [README.md](README.md#whats-new).
 
+## 0.95 - MyAIPs local build, September 16, 2026
+
+- Added an in-app AI Assistant with configurable OpenAI-compatible model endpoints. It can read current document/layer information and an optional canvas preview, then use MyAIPs editing tools directly from the chat
+- Refreshed the MyAIPs icon and start-screen logo with a complete blue-violet PS mark
+
+## 0.94 - September 11, 2026
+
+- Paste clears the selection, so the marquee that produced the copy no longer stays over the pasted layer. Undo of the paste brings it back
+- The Move tool grabs a layer anywhere inside its outline rectangle, transparent pixels included, instead of starting a layer-selection rectangle there. A visible pixel still wins over an enclosing rectangle, and the selected layer's rectangle wins over a larger one above it
+- Speed improvements with selections on documents with tons of layers
+- Moving a layer on a large document with layer styles no longer freezes while the final pixels render: the move lands immediately and the accurate render catches up in the background. Layer-style masks also stay cached between renders, which halves repeated renders of heavily styled posters
+
+## 0.93 - September 11, 2026
+
+- Drag layers from the Layers panel onto another open document's canvas or tab to copy them there, Photoshop style. Layer > Duplicate Layer to Document offers a destination dialog (any open document or a new one), Alt-dragging inside the panel duplicates layers at the drop position, and scripts gain layer.duplicate(targetDocument)
+- The Window menu lists every open document, a document floated in its own window stays active when the main window is clicked, and the tab strip dims a tab whose document currently lives in a float
+- Export Flat Image (Ctrl+Alt+Shift+S) opens a real options dialog: smooth resize, a labeled pixel-art scale, background fill, trim transparent edges, show in Explorer when done, and WebP quality or lossless
+- Camera raw: a Natural rendering profile deepens shadows and rolls highlights off gently while Neutral keeps the straight camera-to-sRGB output, automatic ISO-based noise reduction gains a separate color noise control, develop settings are saved per photo in a .rawprefs file beside the original, quick previews refine in the background with real progress, and Open shows its progress too. The develop dialog's Done button is gone because Open already saves the settings
+- Image Size folds its scale into text layers and re-renders them crisp instead of leaving resampled text, box text scales its frame with it, and the options bar shows the effective size of any scaled text layer
+- Every choose-a-color prompt uses Patchy's own color picker instead of the system dialog: export background, Canvas Size, New Document, script color fields, and the grid and guide colors, which gain opacity controls
+- Image > Rotate Left and Rotate Right replace the 90-degree rotate items, and a new Rotate Arbitrary command turns the canvas by any angle in either direction and grows it to fit, re-rendering text layers crisp
+- Fixes: dropping files from Explorer no longer holds Explorer up while a RAW or PDF import dialog is open, and grabbing a Move-tool transform handle on box text no longer stretches the text out to its frame
+
 ## 0.92 - September 9, 2026
 
 - Local AI control: desktop packages include a native MCP connector, an installable skill, and JavaScript examples. Help > Set up AI Control provides a setup prompt and task examples. Agents can use an isolated background workspace, show their own workspace, or attach to your open Patchy app; attached connections recover when the app restarts
