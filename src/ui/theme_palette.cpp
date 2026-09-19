@@ -88,6 +88,9 @@ const ThemePalette& dark_palette() {
       .tool_palette_bg = rgb(0x535353),
       .tool_palette_border = rgb(0x202020),
       .tool_palette_separator = rgb(0x616161),
+      .tool_swatch_highlight = rgb(0x92969b),
+      .tool_swatch_border = rgb(0x5f6368),
+      .tool_swatch_shadow = rgb(0x17191c),
 
       // Options bar.
       .options_bar_bg = rgb(0x3d3d3d),
@@ -528,6 +531,13 @@ const ThemePalette& light_palette() {
     light.window_close_hover_bg = rgb(0xc42b1c);
     light.window_close_pressed_bg = rgb(0x9f2117);
 
+    // The foreground/background stack uses light and shadow to describe which
+    // swatch is raised. Keep both edges gray in Light as well, so a white color
+    // swatch never grows a white frame against the tool column.
+    light.tool_swatch_highlight = rgb(0xd2d5da);
+    light.tool_swatch_border = rgb(0x858a92);
+    light.tool_swatch_shadow = rgb(0x4f5359);
+
     // An inset control's top edge is a raised highlight against a dark surface
     // and has to become a cast shadow against a light one. Flipping the value
     // would keep it a highlight and invert the bevel.
@@ -740,6 +750,9 @@ std::span<const ThemePaletteRole> theme_palette_roles() {
       PATCHY_THEME_ROLE(tool_palette_bg),
       PATCHY_THEME_ROLE(tool_palette_border),
       PATCHY_THEME_ROLE(tool_palette_separator),
+      PATCHY_THEME_ROLE(tool_swatch_highlight),
+      PATCHY_THEME_ROLE(tool_swatch_border),
+      PATCHY_THEME_ROLE(tool_swatch_shadow),
 
       PATCHY_THEME_ROLE(options_bar_bg),
       PATCHY_THEME_ROLE(options_bar_top_edge),

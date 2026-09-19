@@ -95,6 +95,9 @@ struct ThemePalette {
   QColor tool_palette_bg;
   QColor tool_palette_border;
   QColor tool_palette_separator;
+  QColor tool_swatch_highlight;
+  QColor tool_swatch_border;
+  QColor tool_swatch_shadow;
 
   // Options bar.
   QColor options_bar_bg;

@@ -2084,13 +2084,25 @@ QColor PatchyColorPicker::cut_color_to_clipboard(bool& cleared_custom_slot) {
   return impl_->cut_color_to_clipboard(cleared_custom_slot);
 }
 
-QString color_button_style(QColor color, int font_point_size, int content_width, int content_height, bool raised) {
+QString color_button_style(QColor color, int font_point_size, int content_width, int content_height, bool raised,
+                           bool layered_swatch) {
   const auto text = color.lightness() < 128 ? QStringLiteral("white") : QStringLiteral("black");
   const auto font_size = font_point_size > 0 ? QStringLiteral("font-size: %1pt;").arg(font_point_size) : QString{};
-  const auto border = raised
-                          ? QStringLiteral("border: 1px solid @text_bright; border-right-color: @window_border; "
-                                           "border-bottom-color: @window_border;")
-                          : QStringLiteral("border: 1px solid @text_bright;");
+  const auto border = layered_swatch
+                          ? (raised
+                                 ? QStringLiteral("border: 1px solid @tool_swatch_border; "
+                                                  "border-top-color: @tool_swatch_highlight; "
+                                                  "border-left-color: @tool_swatch_highlight; "
+                                                  "border-right-color: @tool_swatch_shadow; "
+                                                  "border-bottom-color: @tool_swatch_shadow;")
+                                 : QStringLiteral("border: 1px solid @tool_swatch_border; "
+                                                  "border-top-color: @tool_swatch_shadow; "
+                                                  "border-left-color: @tool_swatch_shadow;"))
+                          : (raised
+                                 ? QStringLiteral("border: 1px solid @text_bright; "
+                                                  "border-right-color: @window_border; "
+                                                  "border-bottom-color: @window_border;")
+                                 : QStringLiteral("border: 1px solid @text_bright;"));
   return QStringLiteral(R"(
     QPushButton {
       background: rgb(%1, %2, %3);

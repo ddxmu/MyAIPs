@@ -235,7 +235,12 @@ void ui_main_window_renders_color_controls() {
   CHECK(!background->property("patchy.swatchRaised").toBool());
   CHECK(foreground->geometry() == QRect(1, 0, 30, 30));
   CHECK(background->geometry() == QRect(12, 24, 22, 22));
-  const auto foreground_on_top = foreground->parentWidget()->grab().toImage().pixelColor(QPoint(20, 25));
+  const auto swatch_stack = foreground->parentWidget()->grab().toImage();
+  CHECK(swatch_stack.pixelColor(QPoint(10, 0)) == patchy::ui::theme().tool_swatch_highlight);
+  CHECK(swatch_stack.pixelColor(QPoint(30, 10)) == patchy::ui::theme().tool_swatch_shadow);
+  CHECK(swatch_stack.pixelColor(QPoint(12, 32)) == patchy::ui::theme().tool_swatch_shadow);
+  CHECK(swatch_stack.pixelColor(QPoint(33, 32)) == patchy::ui::theme().tool_swatch_border);
+  const auto foreground_on_top = swatch_stack.pixelColor(QPoint(20, 25));
   CHECK(foreground_on_top.red() < 32);
   CHECK(foreground_on_top.green() < 32);
   CHECK(foreground_on_top.blue() < 32);
@@ -420,7 +425,12 @@ void ui_color_swatch_selection_raises_clicked_background() {
   CHECK(background->geometry() == QRect(1, 0, 30, 30));
   CHECK(!foreground->property("patchy.swatchRaised").toBool());
   CHECK(background->property("patchy.swatchRaised").toBool());
-  const auto background_on_top = background->parentWidget()->grab().toImage().pixelColor(QPoint(20, 25));
+  const auto swatch_stack = background->parentWidget()->grab().toImage();
+  CHECK(swatch_stack.pixelColor(QPoint(10, 0)) == patchy::ui::theme().tool_swatch_highlight);
+  CHECK(swatch_stack.pixelColor(QPoint(30, 10)) == patchy::ui::theme().tool_swatch_shadow);
+  CHECK(swatch_stack.pixelColor(QPoint(12, 32)) == patchy::ui::theme().tool_swatch_shadow);
+  CHECK(swatch_stack.pixelColor(QPoint(33, 32)) == patchy::ui::theme().tool_swatch_border);
+  const auto background_on_top = swatch_stack.pixelColor(QPoint(20, 25));
   CHECK(background_on_top.red() > 220);
   CHECK(background_on_top.green() > 220);
   CHECK(background_on_top.blue() > 220);
@@ -3504,6 +3514,12 @@ void ui_theme_palettes_define_every_role() {
   for (const auto& [name, member] : roles) {
     CHECK(!seen.contains(QString(name)));
     seen.insert(QString(name));
+  }
+
+  for (const auto* palette : {&patchy::ui::dark_palette(), &patchy::ui::light_palette()}) {
+    CHECK(palette->tool_swatch_highlight != QColor(Qt::white));
+    CHECK(palette->tool_swatch_shadow.lightness() < palette->tool_swatch_border.lightness());
+    CHECK(palette->tool_swatch_border.lightness() < palette->tool_swatch_highlight.lightness());
   }
 }
 

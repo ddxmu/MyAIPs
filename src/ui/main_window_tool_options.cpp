@@ -1597,7 +1597,8 @@ void MainWindow::refresh_color_buttons() {
     primary_color_button_->setGeometry(raised ? QRect(1, 0, 30, 30) : QRect(12, 24, 22, 22));
     primary_color_button_->setProperty("patchy.swatchRaised", raised);
     set_themed_style(*primary_color_button_,
-                     color_button_style(primary_color, raised ? 8 : 6, raised ? 28 : 20, raised ? 28 : 20, raised));
+                     color_button_style(primary_color, raised ? 8 : 6, raised ? 28 : 20, raised ? 28 : 20,
+                                        raised, true));
   }
   if (secondary_color_button_ != nullptr) {
     secondary_color_button_->setText(tr("BG"));
@@ -1606,7 +1607,8 @@ void MainWindow::refresh_color_buttons() {
     secondary_color_button_->setGeometry(raised ? QRect(1, 0, 30, 30) : QRect(12, 24, 22, 22));
     secondary_color_button_->setProperty("patchy.swatchRaised", raised);
     set_themed_style(*secondary_color_button_,
-                     color_button_style(secondary_color, raised ? 8 : 6, raised ? 28 : 20, raised ? 28 : 20, raised));
+                     color_button_style(secondary_color, raised ? 8 : 6, raised ? 28 : 20, raised ? 28 : 20,
+                                        raised, true));
   }
   if (primary_color_button_ != nullptr && secondary_color_button_ != nullptr) {
     auto* raised_button = foreground_color_swatch_active_ ? primary_color_button_ : secondary_color_button_;
