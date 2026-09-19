@@ -3,6 +3,10 @@
 Older Patchy release notes are collected here. The two most recent releases
 remain in [README.md](README.md#whats-new).
 
+## 0.105 - MyAIPs, September 17, 2026
+
+- Foreground and background color swatches now overlap like Photoshop: the active color is larger and raised above the smaller one, and both labels stay compact and centered ([@ddxmu](https://github.com/ddxmu))
+
 ## 0.103 - MyAIPs, September 17, 2026
 
 - Saving the AI tool-call limit now commits the edited value first, so a new limit such as 100 is saved instead of the previous value ([@ddxmu](https://github.com/ddxmu))

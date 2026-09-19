@@ -2,10 +2,10 @@
   "project": "ddxmu/MyAIPs",
   "platforms": {
     "macos": {
-      "version": "0.106",
+      "version": "0.107",
       "package_type": "bsdiff-zip",
-      "base_version": "0.105",
-      "delta_download_url": "https://github.com/ddxmu/MyAIPs/releases/download/v0.106/MyAIPs-0.106-from-0.105.delta.zip"
+      "base_version": "0.106",
+      "delta_download_url": "https://github.com/ddxmu/MyAIPs/releases/download/v0.107/MyAIPs-0.107-from-0.106.delta.zip"
     }
   }
 }

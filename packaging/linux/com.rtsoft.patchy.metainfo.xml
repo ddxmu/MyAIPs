@@ -85,6 +85,7 @@
     <control>tablet</control>
   </supports>
   <releases>
+    <release version="0.107" date="2026-09-19"/>
     <release version="0.106" date="2026-09-18"/>
     <release version="0.105" date="2026-09-17"/>
     <release version="0.103" date="2026-09-17"/>

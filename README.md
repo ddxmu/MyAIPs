@@ -138,7 +138,7 @@ These are corpus-specific results, not universal product ratings. See the [full 
 
 ## Download
 
-**Latest MyAIPs release: 0.106** · September 18, 2026 · [Release notes](#whats-new)
+**Latest MyAIPs release: 0.107** · September 19, 2026 · [Release notes](#whats-new)
 
 Windows releases are code signed by Seth A. Robinson; the macOS app is signed and
 notarized (Robinson Technologies Corporation).
@@ -205,13 +205,13 @@ flatpak install -y flathub org.freedesktop.Platform.ffmpeg-full//24.08
 
 ## What's New
 
+### 0.107 - MyAIPs, September 19, 2026
+
+- Replaced the stark white foreground/background swatch frames with theme-aware gray highlights and shadows for clearer layered depth ([@ddxmu](https://github.com/ddxmu))
+
 ### 0.106 - MyAIPs, September 18, 2026
 
 - Fixed the foreground/background color swatch stacking so the selected square stays fully visible when switching between colors ([@ddxmu](https://github.com/ddxmu))
-
-### 0.105 - MyAIPs, September 17, 2026
-
-- Foreground and background color swatches now overlap like Photoshop: the active color is larger and raised above the smaller one, and both labels stay compact and centered ([@ddxmu](https://github.com/ddxmu))
 
 [Older releases](RELEASE-HISTORY.md)
 
