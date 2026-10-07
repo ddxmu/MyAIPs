@@ -130,6 +130,7 @@
 #include <QFontMetrics>
 #include <QFormLayout>
 #include <QFrame>
+#include <QGraphicsDropShadowEffect>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -1591,24 +1592,30 @@ void MainWindow::refresh_color_buttons() {
         .arg(QString::fromUtf8(name.data(), static_cast<qsizetype>(name.size())).toHtmlEscaped(), text.toHtmlEscaped());
   };
   if (primary_color_button_ != nullptr) {
-    primary_color_button_->setText(tr("FG"));
+    primary_color_button_->setAccessibleName(tr("Foreground color"));
     primary_color_button_->setToolTip(named_tooltip(tr("Foreground color %1").arg(primary_color.name(QColor::HexRgb).toUpper()), primary_color));
     const bool raised = foreground_color_swatch_active_;
-    primary_color_button_->setGeometry(raised ? QRect(1, 0, 30, 30) : QRect(12, 24, 22, 22));
+    primary_color_button_->setGeometry(raised ? QRect(2, 7, 24, 24) : QRect(12, 17, 22, 22));
     primary_color_button_->setProperty("patchy.swatchRaised", raised);
     set_themed_style(*primary_color_button_,
-                     color_button_style(primary_color, raised ? 8 : 6, raised ? 28 : 20, raised ? 28 : 20,
+                     color_button_style(primary_color, 0, raised ? 22 : 20, raised ? 22 : 20,
                                         raised, true));
+    auto shadow_color = theme().tool_swatch_shadow;
+    shadow_color.setAlpha(raised ? 150 : 80);
+    static_cast<QGraphicsDropShadowEffect*>(primary_color_button_->graphicsEffect())->setColor(shadow_color);
   }
   if (secondary_color_button_ != nullptr) {
-    secondary_color_button_->setText(tr("BG"));
+    secondary_color_button_->setAccessibleName(tr("Background color"));
     secondary_color_button_->setToolTip(named_tooltip(tr("Background color %1").arg(secondary_color.name(QColor::HexRgb).toUpper()), secondary_color));
     const bool raised = !foreground_color_swatch_active_;
-    secondary_color_button_->setGeometry(raised ? QRect(1, 0, 30, 30) : QRect(12, 24, 22, 22));
+    secondary_color_button_->setGeometry(raised ? QRect(2, 7, 24, 24) : QRect(12, 17, 22, 22));
     secondary_color_button_->setProperty("patchy.swatchRaised", raised);
     set_themed_style(*secondary_color_button_,
-                     color_button_style(secondary_color, raised ? 8 : 6, raised ? 28 : 20, raised ? 28 : 20,
+                     color_button_style(secondary_color, 0, raised ? 22 : 20, raised ? 22 : 20,
                                         raised, true));
+    auto shadow_color = theme().tool_swatch_shadow;
+    shadow_color.setAlpha(raised ? 150 : 80);
+    static_cast<QGraphicsDropShadowEffect*>(secondary_color_button_->graphicsEffect())->setColor(shadow_color);
   }
   if (primary_color_button_ != nullptr && secondary_color_button_ != nullptr) {
     auto* raised_button = foreground_color_swatch_active_ ? primary_color_button_ : secondary_color_button_;

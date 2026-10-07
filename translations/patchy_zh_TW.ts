@@ -10728,14 +10728,6 @@ Some canvas actions may already have run. Check the document; use Undo if needed
         <translation>大幅放大筆刷</translation>
     </message>
     <message>
-        <source>FG</source>
-        <translation>前景</translation>
-    </message>
-    <message>
-        <source>BG</source>
-        <translation>背景</translation>
-    </message>
-    <message>
         <source>Auto-Select</source>
         <translation>自動選取</translation>
     </message>

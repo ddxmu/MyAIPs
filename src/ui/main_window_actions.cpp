@@ -430,8 +430,6 @@ void MainWindow::bind_action_translations(ActionBuildContext& ctx) {
     refresh_action_tooltip(action);
   }
   const std::vector<std::pair<QObject*, const char*>> translated_widgets = {
-      {primary_color_button_, QT_TR_NOOP("FG")},
-      {secondary_color_button_, QT_TR_NOOP("BG")},
       {move_auto_select_check_, QT_TR_NOOP("Auto-Select")},
       {move_show_transform_controls_check_, QT_TR_NOOP("Show Transform Controls")},
       {clone_aligned_check_, QT_TR_NOOP("Aligned")},

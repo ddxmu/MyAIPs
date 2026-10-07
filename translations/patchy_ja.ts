@@ -11650,14 +11650,6 @@ Some canvas actions may already have run. Check the document; use Undo if needed
         <translation>色を入れ替え</translation>
     </message>
     <message>
-        <source>FG</source>
-        <translation>前</translation>
-    </message>
-    <message>
-        <source>BG</source>
-        <translation>背</translation>
-    </message>
-    <message>
         <source>Foreground color</source>
         <translation>描画色</translation>
     </message>

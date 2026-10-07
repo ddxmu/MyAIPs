@@ -10751,14 +10751,6 @@ Some canvas actions may already have run. Check the document; use Undo if needed
         <translation>Pinsel stark vergrößern</translation>
     </message>
     <message>
-        <source>FG</source>
-        <translation>VG</translation>
-    </message>
-    <message>
-        <source>BG</source>
-        <translation>HG</translation>
-    </message>
-    <message>
         <source>Auto-Select</source>
         <translation>Autom. auswählen</translation>
     </message>

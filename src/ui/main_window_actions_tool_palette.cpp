@@ -124,6 +124,7 @@
 #include <QFontMetrics>
 #include <QFormLayout>
 #include <QFrame>
+#include <QGraphicsDropShadowEffect>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -1056,12 +1057,20 @@ void MainWindow::build_tool_palette(ActionBuildContext& ctx) {
   auto* color_swatch_stack = new QWidget(tool_palette);
   color_swatch_stack->setObjectName(QStringLiteral("colorSwatchStack"));
   color_swatch_stack->setFixedSize(36, 46);
-  primary_color_button_ = new QPushButton(tr("FG"), color_swatch_stack);
-  secondary_color_button_ = new QPushButton(tr("BG"), color_swatch_stack);
+  set_themed_style(*color_swatch_stack,
+                   QStringLiteral("QWidget#colorSwatchStack { background: transparent; border: none; }"));
+  primary_color_button_ = new QPushButton(color_swatch_stack);
+  secondary_color_button_ = new QPushButton(color_swatch_stack);
   primary_color_button_->setObjectName(QStringLiteral("foregroundColorButton"));
   secondary_color_button_->setObjectName(QStringLiteral("backgroundColorButton"));
   primary_color_button_->setToolTip(tr("Foreground color"));
   secondary_color_button_->setToolTip(tr("Background color"));
+  for (auto* button : {primary_color_button_, secondary_color_button_}) {
+    auto* shadow = new QGraphicsDropShadowEffect(button);
+    shadow->setBlurRadius(5);
+    shadow->setOffset(0, 1);
+    button->setGraphicsEffect(shadow);
+  }
   tool_palette->addWidget(color_swatch_stack);
   auto* default_colors_action = tool_palette->addAction(tr("Default Colors"));
   auto* swap_colors_action = tool_palette->addAction(tr("Swap Colors"));

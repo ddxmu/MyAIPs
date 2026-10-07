@@ -10751,14 +10751,6 @@ Some canvas actions may already have run. Check the document; use Undo if needed
         <translation>Pincel mucho más grande</translation>
     </message>
     <message>
-        <source>FG</source>
-        <translation>FR</translation>
-    </message>
-    <message>
-        <source>BG</source>
-        <translation>FO</translation>
-    </message>
-    <message>
         <source>Auto-Select</source>
         <translation>Selección automática</translation>
     </message>

@@ -2089,15 +2089,7 @@ QString color_button_style(QColor color, int font_point_size, int content_width,
   const auto text = color.lightness() < 128 ? QStringLiteral("white") : QStringLiteral("black");
   const auto font_size = font_point_size > 0 ? QStringLiteral("font-size: %1pt;").arg(font_point_size) : QString{};
   const auto border = layered_swatch
-                          ? (raised
-                                 ? QStringLiteral("border: 1px solid @tool_swatch_border; "
-                                                  "border-top-color: @tool_swatch_highlight; "
-                                                  "border-left-color: @tool_swatch_highlight; "
-                                                  "border-right-color: @tool_swatch_shadow; "
-                                                  "border-bottom-color: @tool_swatch_shadow;")
-                                 : QStringLiteral("border: 1px solid @tool_swatch_border; "
-                                                  "border-top-color: @tool_swatch_shadow; "
-                                                  "border-left-color: @tool_swatch_shadow;"))
+                          ? QStringLiteral("border: 1px solid @tool_swatch_border;")
                           : (raised
                                  ? QStringLiteral("border: 1px solid @text_bright; "
                                                   "border-right-color: @window_border; "
@@ -2108,7 +2100,7 @@ QString color_button_style(QColor color, int font_point_size, int content_width,
       background: rgb(%1, %2, %3);
       color: %4;
       %8
-      border-radius: 0;
+      border-radius: %9px;
       min-width: %6px;
       max-width: %6px;
       min-height: %7px;
@@ -2129,7 +2121,8 @@ QString color_button_style(QColor color, int font_point_size, int content_width,
       .arg(font_size)
       .arg(content_width)
       .arg(content_height)
-      .arg(border);
+      .arg(border)
+      .arg(layered_swatch ? 6 : 0);
 }
 
 QString inline_text_editor_style(QColor color, int pixel_size) {

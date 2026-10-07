@@ -10742,14 +10742,6 @@ Some canvas actions may already have run. Check the document; use Undo if needed
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>FG</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>BG</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Auto-Select</source>
         <translation type="unfinished"></translation>
     </message>
